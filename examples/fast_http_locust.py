@@ -1,5 +1,4 @@
-from locust import HttpUser, TaskSet, task, between
-from locust.contrib.fasthttp import FastHttpUser
+from locust import FastHttpUser, task
 
 
 class WebsiteUser(FastHttpUser):
@@ -9,13 +8,14 @@ class WebsiteUser(FastHttpUser):
     """
 
     host = "http://127.0.0.1:8089"
-    wait_time = between(2, 5)
     # some things you can configure on FastHttpUser
     # connection_timeout = 60.0
     # insecure = True
     # max_redirects = 5
     # max_retries = 1
     # network_timeout = 60.0
+    # proxy_host = my-proxy.com
+    # proxy_port = 8080
 
     @task
     def index(self):

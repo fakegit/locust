@@ -1,11 +1,17 @@
+from locust import HttpUser, TaskSet, User, constant, task
+from locust.env import Environment
+from locust.exception import (
+    CatchResponseError,
+    InterruptTaskSet,
+    RescheduleTask,
+    RescheduleTaskImmediately,
+    ResponseError,
+    StopUser,
+)
+
 import gevent
 from gevent import sleep
 from gevent.pool import Group
-
-from locust.exception import InterruptTaskSet, ResponseError
-from locust import HttpUser, User, TaskSet, task, constant
-from locust.env import Environment
-from locust.exception import CatchResponseError, LocustError, RescheduleTask, RescheduleTaskImmediately, StopUser
 
 from .testcases import LocustTestCase, WebserverTestCase
 
@@ -46,6 +52,8 @@ class TestTaskSet(LocustTestCase):
         self.assertRaisesRegex(Exception, "No tasks defined on MyTasks.*", l.run)
         l.tasks = []
         self.assertRaisesRegex(Exception, "No tasks defined on MyTasks.*", l.run)
+        MyTasks.task = object()
+        self.assertRaisesRegex(Exception, ".*but you have set a 'task' attribute.*", l.run)
 
     def test_tasks_missing_from_user_gives_user_friendly_exception(self):
         class MyUser(User):
@@ -53,6 +61,8 @@ class TestTaskSet(LocustTestCase):
 
         l = MyUser(self.environment)
         self.assertRaisesRegex(Exception, "No tasks defined on MyUser.*", l.run)
+        MyUser.task = object()
+        self.assertRaisesRegex(Exception, ".*but you have set a 'task' attribute.*", l.run)
 
     def test_task_decorator_ratio(self):
         t1 = lambda l: None
@@ -323,7 +333,9 @@ class TestTaskSet(LocustTestCase):
         class MyTaskSet(TaskSet):
             a = 1
             b = 2
-            wait_time = lambda self: 1 + (self.b - self.a)
+
+            def wait_time(self):
+                return 1 + (self.b - self.a)
 
         taskset = MyTaskSet(self.locust)
         self.assertEqual(taskset.wait_time(), 2.0)
@@ -471,6 +483,29 @@ class TestLocustClass(LocustTestCase):
         self.assertTrue(l.t1_executed)
         self.assertTrue(l.t2_executed)
 
+    def test_locust_on_start_exception_fires_user_error(self):
+        class MyUser(User):
+            def on_start(self):
+                raise ValueError("on_start failed")
+
+        errors = []
+        self.environment.events.user_error.add_listener(lambda **kwargs: errors.append(kwargs))
+        l = MyUser(self.environment)
+        self.assertRaises(ValueError, l.run)
+        self.assertEqual(1, len(errors))
+        self.assertIs(l, errors[0]["user_instance"])
+        self.assertIsInstance(errors[0]["exception"], ValueError)
+
+    def test_locust_on_start_stop_user_does_not_fire_user_error(self):
+        class MyUser(User):
+            def on_start(self):
+                raise StopUser()
+
+        errors = []
+        self.environment.events.user_error.add_listener(lambda **kwargs: errors.append(kwargs))
+        MyUser(self.environment).run()
+        self.assertEqual([], errors)
+
     def test_locust_on_stop(self):
         class MyUser(User):
             on_stop_executed = False
@@ -562,6 +597,26 @@ class TestLocustClass(LocustTestCase):
         # make sure instance is killed right away, and that the task did NOT get to finish
         self.assertEqual(0, len(group))
         self.assertEqual(1, user.test_state)
+
+    def test_stop_user_before_greenlet_starts(self):
+        # When a user greenlet has been spawned but hasn't started running yet
+        # (e.g. stopping a test mid-ramp-up with --stop-timeout), _state is None.
+        # stop(force=False) should kill the greenlet immediately, not raise.
+        class TestUser(User):
+            @task
+            def t(self):
+                sleep(1)
+
+        group = Group()
+        user = TestUser(self.environment)
+        user.start(group)
+        # Don't yield to the gevent hub — the greenlet hasn't run yet
+        self.assertIsNone(user._state)
+
+        result = user.stop(force=False)
+        self.assertTrue(result)
+        sleep(0)
+        self.assertEqual(0, len(group))
 
     def test_deprecated_locust_class(self):
         def test_locust():
@@ -685,6 +740,31 @@ class TestWebLocustClass(WebserverTestCase):
         self.assertEqual(401, locust.client.get("/basic_auth").status_code)
         self.assertEqual(401, unauthorized.client.get("/basic_auth").status_code)
 
+    def test_client_basic_auth_percent_encoded_credentials(self):
+        class MyAuthorizedUser(HttpUser):
+            host = f"http://loc%75st:men%61ce@127.0.0.1:{self.port}"
+
+        authorized = MyAuthorizedUser(self.environment)
+        response = authorized.client.get("/basic_auth")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("Authorized", response.text)
+
+    def test_client_basic_auth_credentials_are_unquoted(self):
+        class MyUser(HttpUser):
+            host = "http://locust:p%40ss%2Fword@example.com"
+
+        locust = MyUser(self.environment)
+        self.assertEqual("http://example.com", locust.client.base_url)
+        self.assertEqual("locust", locust.client.auth.username)
+        self.assertEqual("p@ss/word", locust.client.auth.password)
+
+    def test_client_basic_auth_ipv6_host(self):
+        class MyUser(HttpUser):
+            host = "http://locust:menace@[::1]:8089/base"
+
+        locust = MyUser(self.environment)
+        self.assertEqual("http://[::1]:8089/base", locust.client.base_url)
+
     def test_log_request_name_argument(self):
         class MyUser(HttpUser):
             tasks = []
@@ -724,34 +804,33 @@ class TestCatchResponse(WebserverTestCase):
         self.num_failures = 0
         self.num_success = 0
 
-        def on_failure(request_type, name, response_time, response_length, exception):
-            self.num_failures += 1
-            self.last_failure_exception = exception
+        def on_request(request_type, name, response_time, response_length, exception, context, **kwargs):
+            if exception:
+                self.num_failures += 1
+                self.last_failure_exception = exception
+            else:
+                self.num_success += 1
 
-        def on_success(**kwargs):
-            self.num_success += 1
-
-        self.environment.events.request_failure.add_listener(on_failure)
-        self.environment.events.request_success.add_listener(on_success)
+        self.environment.events.request.add_listener(on_request)
 
     def test_catch_response(self):
         self.assertEqual(500, self.locust.client.get("/fail").status_code)
         self.assertEqual(1, self.num_failures)
         self.assertEqual(0, self.num_success)
 
-        with self.locust.client.get("/ultra_fast", catch_response=True) as response:
+        with self.locust.client.get("/ultra_fast", catch_response=True):
             pass
         self.assertEqual(1, self.num_failures)
         self.assertEqual(1, self.num_success)
 
-        with self.locust.client.get("/ultra_fast", catch_response=True) as response:
+        with self.locust.client.get("/ultra_fast", catch_response=True):
             raise ResponseError("Not working")
 
         self.assertEqual(2, self.num_failures)
         self.assertEqual(1, self.num_success)
 
     def test_catch_response_http_fail(self):
-        with self.locust.client.get("/fail", catch_response=True) as response:
+        with self.locust.client.get("/fail", catch_response=True):
             pass
         self.assertEqual(1, self.num_failures)
         self.assertEqual(0, self.num_success)
@@ -784,7 +863,7 @@ class TestCatchResponse(WebserverTestCase):
         class MyTaskSet(TaskSet):
             @task
             def interrupted_task(self):
-                with self.client.get("/ultra_fast", catch_response=True) as r:
+                with self.client.get("/ultra_fast", catch_response=True):
                     raise InterruptTaskSet()
 
         class MyUser(HttpUser):

@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
-
 """
 This is an example of a locustfile that uses Locust's built in event hooks to
 track the sum of the content-length header in all successful HTTP responses
 """
 
-from locust import HttpUser, TaskSet, task, web, between
-from locust import events
+from locust import HttpUser, TaskSet, between, events, task
 
 
 class MyTaskSet(TaskSet):
@@ -47,10 +44,10 @@ def locust_init(environment, **kwargs):
             return "Total content-length received: %i" % stats["content-length"]
 
 
-@events.request_success.add_listener
-def on_request_success(request_type, name, response_time, response_length):
+@events.request.add_listener
+def on_request(request_type, name, response_time, response_length, exception, context, **kwargs):
     """
-    Event handler that get triggered on every successful request
+    Event handler that get triggered on every request.
     """
     stats["content-length"] += response_length
 

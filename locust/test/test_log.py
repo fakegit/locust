@@ -1,16 +1,20 @@
-import mock
-import os
+from locust import log
+from locust.log import greenlet_exception_logger
+
+import re
 import socket
 import subprocess
 import textwrap
 from logging import getLogger
+from unittest import mock
 
 import gevent
 
-from locust import log
-from locust.log import greenlet_exception_logger
+from . import changed_rlimit
 from .testcases import LocustTestCase
 from .util import temporary_file
+
+HOSTNAME = re.sub(r"\..*", "", socket.gethostname())
 
 
 class TestGreenletExceptionLogger(LocustTestCase):
@@ -69,18 +73,19 @@ class TestLoggingOptions(LocustTestCase):
                 ],
                 stderr=subprocess.STDOUT,
                 timeout=10,
-            ).decode("utf-8")
+                text=True,
+            )
 
         self.assertIn(
-            "%s/INFO/locust.main: Run time limit set to 1 seconds" % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: Run time limit set to 1 seconds",
             output,
         )
         self.assertIn(
-            "%s/INFO/locust.main: Time limit reached. Stopping Locust." % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: --run-time limit reached, shutting down",
             output,
         )
         self.assertIn(
-            "%s/INFO/locust.main: Shutting down (exit code 0), bye." % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: Shutting down (exit code 0)",
             output,
         )
         self.assertIn(
@@ -89,12 +94,12 @@ class TestLoggingOptions(LocustTestCase):
         )
         # check that custom message of root logger is also printed
         self.assertIn(
-            "%s/INFO/root: custom log message" % socket.gethostname(),
+            f"{HOSTNAME}/INFO/root: custom log message",
             output,
         )
         # check that custom message of custom_logger is also printed
         self.assertIn(
-            "%s/INFO/custom_logger: test" % socket.gethostname(),
+            f"{HOSTNAME}/INFO/custom_logger: test",
             output,
         )
 
@@ -128,8 +133,12 @@ class TestLoggingOptions(LocustTestCase):
                 ],
                 stderr=subprocess.STDOUT,
                 timeout=10,
-            ).decode("utf-8")
-        self.assertEqual("running my_task", output.strip())
+                text=True,
+            )
+        if not changed_rlimit:
+            self.assertTrue(output.strip().endswith("running my_task"))
+        else:
+            self.assertEqual("running my_task", output.strip())
 
     def test_log_to_file(self):
         with temporary_file(
@@ -166,11 +175,10 @@ class TestLoggingOptions(LocustTestCase):
                         ],
                         stderr=subprocess.STDOUT,
                         timeout=10,
-                    ).decode("utf-8")
+                        text=True,
+                    )
                 except subprocess.CalledProcessError as e:
-                    raise AssertionError(
-                        "Running locust command failed. Output was:\n\n%s" % e.stdout.decode("utf-8")
-                    ) from e
+                    raise AssertionError(f"Running locust command failed. Output was:\n\n{e.stdout}") from e
 
                 with open(log_file_path, encoding="utf-8") as f:
                     log_content = f.read()
@@ -184,19 +192,51 @@ class TestLoggingOptions(LocustTestCase):
 
         # check that log messages goes into file
         self.assertIn(
-            "%s/INFO/locust.main: Run time limit set to 1 seconds" % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: Run time limit set to 1 seconds",
             log_content,
         )
         self.assertIn(
-            "%s/INFO/locust.main: Time limit reached. Stopping Locust." % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: --run-time limit reached, shutting down",
             log_content,
         )
         self.assertIn(
-            "%s/INFO/locust.main: Shutting down (exit code 0), bye." % socket.gethostname(),
+            f"{HOSTNAME}/INFO/locust.main: Shutting down (exit code 0)",
             log_content,
         )
         # check that message of custom logger also went into log file
         self.assertIn(
-            "%s/INFO/root: custom log message" % socket.gethostname(),
+            f"{HOSTNAME}/INFO/root: custom log message",
             log_content,
         )
+
+    def test_user_broken_on_start(self):
+        with temporary_file(
+            textwrap.dedent(
+                """
+            from locust import HttpUser, task
+
+            class TestUser(HttpUser):
+                host = "invalidhost"
+
+                def on_start(self):
+                    self.client.get("/")
+                """
+            )
+        ) as file_path:
+            output = subprocess.check_output(
+                [
+                    "locust",
+                    "-f",
+                    file_path,
+                    "-t",
+                    "1",
+                    "--headless",
+                    "--exit-code-on-error",
+                    "0",
+                ],
+                stderr=subprocess.STDOUT,
+                timeout=10,
+                text=True,
+            )
+
+        self.assertIn("ERROR/locust.user.users: Invalid URL", output)

@@ -1,14 +1,12 @@
 import os
 import random
 import time
-
 from contextlib import contextmanager
 
-
-MOCK_LOUCSTFILE_CONTENT = '''
+MOCK_LOCUSTFILE_CONTENT = '''
 """This is a mock locust file for unit testing"""
 
-from locust import HttpUser, TaskSet, task, between, LoadTestShape
+from locust import HttpUser, TaskSet, task, constant, LoadTestShape
 
 
 def index(l):
@@ -25,7 +23,7 @@ class UserTasks(TaskSet):
 
 class UserSubclass(HttpUser):
     host = "http://127.0.0.1:8089"
-    wait_time = between(2, 5)
+    wait_time = constant(1)
     tasks = [UserTasks]
 
 
@@ -36,13 +34,13 @@ class NotUserSubclass():
 
 
 class MockedLocustfile:
-    __slots__ = ["filename", "directory", "file_path"]
+    __slots__ = ["directory", "file_path", "filename"]
 
 
 @contextmanager
-def mock_locustfile(filename_prefix="mock_locustfile", content=MOCK_LOUCSTFILE_CONTENT):
+def mock_locustfile(filename_prefix="mock_locustfile", content=MOCK_LOCUSTFILE_CONTENT, dir=None):
     mocked = MockedLocustfile()
-    mocked.directory = os.path.dirname(os.path.abspath(__file__))
+    mocked.directory = dir or os.path.dirname(os.path.abspath(__file__))
     mocked.filename = "%s_%s_%i.py" % (
         filename_prefix,
         str(time.time()).replace(".", "_"),

@@ -1,18 +1,52 @@
+from __future__ import annotations
+
+from locust.clients import HttpSession, RestResponseContextManager
+from locust.exception import (
+    CatchResponseError,
+    InterruptTaskSet,
+    RescheduleTask,
+    RescheduleTaskImmediately,
+    StopTest,
+    StopUser,
+)
+from locust.user.task import (
+    LOCUST_STATE_RUNNING,
+    LOCUST_STATE_STOPPING,
+    LOCUST_STATE_WAITING,
+    DefaultTaskSet,
+    TaskSet,
+    get_tasks_from_base_classes,
+)
 from locust.user.wait_time import constant
-from typing import Any, Callable, List, TypeVar, Union
+from locust.util import deprecation
+
+import logging
+import re
+import sys
+import time
+import traceback
+from collections.abc import Callable
+from contextlib import contextmanager
+from json.decoder import JSONDecodeError
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+
 from gevent import GreenletExit, greenlet
 from gevent.pool import Group
-from locust.clients import HttpSession
-from locust.exception import LocustError, StopUser
-from locust.util import deprecation
-from .task import (
-    TaskSet,
-    DefaultTaskSet,
-    get_tasks_from_base_classes,
-    LOCUST_STATE_RUNNING,
-    LOCUST_STATE_WAITING,
-    LOCUST_STATE_STOPPING,
-)
+from geventhttpclient.useragent import ConnectionError
+from requests.exceptions import RequestException
+from urllib3 import PoolManager
+
+if sys.version_info >= (3, 12):
+    from typing import override
+else:
+    from typing_extensions import override
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    import pytest
+
+logger = logging.getLogger(__name__)
 
 
 class UserMeta(type):
@@ -35,7 +69,7 @@ class UserMeta(type):
         return type.__new__(mcs, classname, bases, class_dict)
 
 
-class User(object, metaclass=UserMeta):
+class User(metaclass=UserMeta):
     """
     Represents a "user" which is to be spawned and attack the system that is to be load tested.
 
@@ -48,7 +82,7 @@ class User(object, metaclass=UserMeta):
     :py:class:`HttpUser <locust.HttpUser>` class.
     """
 
-    host: str = None
+    host: str | None = None
     """Base hostname to swarm. i.e: http://127.0.0.1:1234"""
 
     min_wait = None
@@ -78,7 +112,7 @@ class User(object, metaclass=UserMeta):
     Method that returns the time between the execution of locust tasks in milliseconds
     """
 
-    tasks: List[Union[TaskSet, Callable]] = []
+    tasks: list[TaskSet | Callable] = []
     """
     Collection of python callables and/or TaskSet classes that the Locust user(s) will run.
 
@@ -93,26 +127,31 @@ class User(object, metaclass=UserMeta):
             tasks = {ThreadPage:15, write_post:1}
     """
 
-    weight = 10
+    weight: float = 1
     """Probability of user class being chosen. The higher the weight, the greater the chance of it being chosen."""
 
-    abstract = True
+    fixed_count: int = 0
+    """
+    If the value > 0, the weight property will be ignored and the 'fixed_count'-instances will be spawned.
+    These Users are spawned first. If the total target count (specified by the --users arg) is not enough
+    to spawn all instances of each User class with the defined property, the final count of each User is undefined.
+    """
+
+    abstract: bool = True
     """If abstract is True, the class is meant to be subclassed, and locust will not spawn users of this class during a test."""
 
-    environment = None
-    """A reference to the :py:attr:`environment <locust.Environment>` in which this locust is running"""
-
-    client = None
-    _state = None
-    _greenlet: greenlet.Greenlet = None
-    _group: Group
-    _taskset_instance = None
-
-    def __init__(self, environment):
+    def __init__(self, environment) -> None:
         super().__init__()
         self.environment = environment
+        """A reference to the :py:class:`Environment <locust.env.Environment>` in which this user is running"""
+        self._state: str | None = None
+        self._greenlet: greenlet.Greenlet | None = None
+        self._group: Group
+        self._taskset_instance: TaskSet | None = None
+        self._cp_last_run: float = time.perf_counter()  # used by constant_pacing wait_time
+        self._cp_last_wait_time: float = 0  # used by constant_pacing wait_time
 
-    def on_start(self):
+    def on_start(self) -> None:
         """
         Called when a User starts running.
         """
@@ -124,15 +163,23 @@ class User(object, metaclass=UserMeta):
         """
         pass
 
+    @final
     def run(self):
         self._state = LOCUST_STATE_RUNNING
         self._taskset_instance = DefaultTaskSet(self)
         try:
-            # run the TaskSet on_start method, if it has one
-            self.on_start()
+            # run the User on_start method, if it has one
+            try:
+                self.on_start()
+            except Exception as e:
+                # unhandled exceptions inside tasks are logged in TaskSet.run, but since we're not yet there...
+                logger.error("%s\n%s", e, traceback.format_exc())
+                if not isinstance(e, (StopUser, StopTest)):
+                    self.environment.events.user_error.fire(user_instance=self, exception=e, tb=e.__traceback__)
+                raise
 
             self._taskset_instance.run()
-        except (GreenletExit, StopUser):
+        except (GreenletExit, StopUser, StopTest):
             # run the on_stop method, if it has one
             self.on_stop()
 
@@ -153,7 +200,7 @@ class User(object, metaclass=UserMeta):
         Start a greenlet that runs this User instance.
 
         :param group: Group instance where the greenlet will be spawned.
-        :type gevent_group: gevent.pool.Group
+        :type group: gevent.pool.Group
         :returns: The spawned greenlet.
         """
 
@@ -169,7 +216,7 @@ class User(object, metaclass=UserMeta):
         self._group = group
         return self._greenlet
 
-    def stop(self, force=False):
+    def stop(self, force: bool = False):
         """
         Stop the user greenlet.
 
@@ -178,15 +225,121 @@ class User(object, metaclass=UserMeta):
                       methods are called. If force is True the greenlet will be killed immediately.
         :returns: True if the greenlet was killed immediately, otherwise False
         """
-        if force or self._state == LOCUST_STATE_WAITING:
+        if force or self._state in (None, LOCUST_STATE_WAITING):
             self._group.killone(self._greenlet)
             return True
         elif self._state == LOCUST_STATE_RUNNING:
             self._state = LOCUST_STATE_STOPPING
             return False
+        else:
+            raise Exception(f"Tried to stop User in an unexpected state: {self._state}. This should never happen.")
+
+    @property
+    def group(self):
+        return self._group
+
+    @property
+    def greenlet(self):
+        return self._greenlet
+
+    def context(self) -> dict:
+        """
+        Adds the returned value (a dict) to the context for :ref:`request event <request_context>`.
+        Override this in your User class to customize the context.
+        """
+        return {}
+
+    @classmethod
+    def json(cls):
+        return {
+            "host": cls.host,
+            "weight": cls.weight,
+            "fixed_count": cls.fixed_count,
+            "tasks": [task.__name__ for task in cls.tasks],
+        }
+
+    @classmethod
+    def fullname(cls) -> str:
+        """Fully qualified name of the user class, e.g. my_package.my_module.MyUserClass"""
+        return ".".join(filter(lambda x: x != "<locals>", (cls.__module__ + "." + cls.__qualname__).split(".")))
 
 
-class HttpUser(User):
+RestResponseT = TypeVar("RestResponseT")
+
+
+class RestMixin(Generic[RestResponseT]):
+    """
+    Provides the ``rest`` and ``rest_`` methods for User classes that have an HTTP ``client`` (HttpUser and FastHttpUser)
+    """
+
+    _callstack_regex = re.compile(r'  File "(\/.[^"]*)", line (\d*),(.*)')
+
+    @contextmanager
+    def rest(self, method, url, headers: dict | None = None, **kwargs) -> Generator[RestResponseT]:
+        """
+        A wrapper for self.client.request that:
+
+        * Parses the JSON response to a dict called ``js`` in the response object. Marks the request as failed if the response was not valid JSON.
+        * Defaults ``Content-Type`` and ``Accept`` headers to ``application/json``
+        * Sets ``catch_response=True`` (so always use a :ref:`with-block <catch-response>`)
+        * Catches any unhandled exceptions thrown inside your with-block, marking the sample as failed (instead of exiting the task immediately without even firing the request event)
+        """
+        headers = dict(headers) if headers else {}
+        if not ("Content-Type" in headers or "content-type" in headers):
+            headers["Content-Type"] = "application/json"
+        if not ("Accept" in headers or "accept" in headers):
+            headers["Accept"] = "application/json"
+        with self.client.request(method, url, catch_response=True, headers=headers, **kwargs) as r:  # type: ignore[attr-defined]
+            resp: Any = r
+            resp.js = None
+            if resp.content is None:
+                resp.failure(str(resp.error))
+            elif resp.text:
+                try:
+                    resp.js = resp.json()
+                except JSONDecodeError as e:
+                    resp.failure(
+                        f"Could not parse response as JSON. {resp.text[:250]}, response code {resp.status_code}, error {e}"
+                    )
+            try:
+                yield resp
+            except AssertionError as e:
+                if e.args:
+                    # the message can be any object, e.g. `assert ..., response.js`
+                    message = str(e.args[0])
+                    if message.endswith(","):
+                        short_resp = resp.text[:200] if resp.text else resp.text
+                        resp.failure(f"{message[:-1]}, response was {short_resp}")
+                    else:
+                        resp.failure(message)
+                else:
+                    resp.failure("Assertion failed")
+
+            except (StopUser, StopTest, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet):
+                raise
+            except Exception as e:
+                error_lines = []
+                for l in traceback.format_exc().split("\n"):
+                    if m := self._callstack_regex.match(l):
+                        filename = re.sub(r"/((home|Users)/\w*)/", "~/", m.group(1))
+                        error_lines.append(filename + ":" + m.group(2) + m.group(3))
+                    short_resp = resp.text[:200] if resp.text else resp.text
+                    resp.failure(f"{e.__class__.__name__}: {e} at {', '.join(error_lines)}. Response was {short_resp}")
+
+    @contextmanager
+    def rest_(self, method, url, name=None, **kwargs) -> Generator[RestResponseT]:
+        """
+        Some REST api:s use a timestamp as part of their query string (mainly to break through caches).
+        This is a convenience method for that, appending a _=<timestamp> parameter automatically
+        """
+        separator = "&" if "?" in url else "?"
+        if name is None:
+            name = url + separator + "_=..."
+        with self.rest(method, f"{url}{separator}_={int(time.time() * 1000)}", name=name, **kwargs) as resp:
+            yield resp
+
+
+class HttpUser(User, RestMixin[RestResponseContextManager]):
     """
     Represents an HTTP "user" which is to be spawned and attack the system that is to be load tested.
 
@@ -198,26 +351,50 @@ class HttpUser(User):
     for keeping a user session between requests.
     """
 
-    abstract = True
+    abstract: bool = True
     """If abstract is True, the class is meant to be subclassed, and users will not choose this locust during a test"""
 
-    client: HttpSession = None
-    """
-    Instance of HttpSession that is created upon instantiation of Locust.
-    The client supports cookies, and therefore keeps the session between HTTP requests.
-    """
+    pool_manager: PoolManager | None = None
+    """Connection pool manager to use. If not given, a new manager is created per single user."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.host is None:
-            raise LocustError(
+            raise StopTest(
                 "You must specify the base host. Either in the host attribute in the User class, or on the command line using the --host option."
             )
 
-        session = HttpSession(
+        self.client = HttpSession(
             base_url=self.host,
-            request_success=self.environment.events.request_success,
-            request_failure=self.environment.events.request_failure,
+            request_event=self.environment.events.request,
+            user=self,
+            pool_manager=self.pool_manager,
         )
-        session.trust_env = False
-        self.client = session
+        """
+        Instance of HttpSession that is created upon instantiation of Locust.
+        The client supports cookies, and therefore keeps the session between HTTP requests.
+        """
+        self.client.trust_env = False
+
+
+class PytestUser(User):
+    abstract = True
+    functions: list[pytest.Function]
+    fixtures: list
+
+    @override
+    def run(self):  # type: ignore[override] # We actually DO want to change the default User behavior
+        self._state = LOCUST_STATE_RUNNING
+        self.fixtures = [next(f.fixturedef.func(self)) for f in self.functions]  # type: ignore[attr-defined]
+        while True:
+            for i in range(len(self.fixtures)):
+                try:  # try-except is for supporting .raise_for_status() in tests
+                    self.functions[i].obj(self.fixtures[i])
+                except RequestException as e:
+                    if isinstance(e, ValueError):  # things like MissingSchema etc, lets not catch that
+                        raise
+                    logger.debug("%s\n%s", e, traceback.format_exc())
+                except CatchResponseError as e:
+                    logger.debug("%s\n%s", e, traceback.format_exc())
+                except ConnectionError as e:
+                    logger.debug("%s\n%s", e, traceback.format_exc())

@@ -1,28 +1,35 @@
 # Locust
 
-[![Build Status](https://github.com/locustio/locust/workflows/Tests/badge.svg)](https://github.com/locustio/locust/actions?query=workflow%3ATests)
-[![codecov](https://codecov.io/gh/locustio/locust/branch/master/graph/badge.svg)](https://codecov.io/gh/locustio/locust)
-[![license](https://img.shields.io/github/license/locustio/locust.svg)](https://github.com/locustio/locust/blob/master/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/locust.svg)](https://pypi.org/project/locust/)
-[![PyPI](https://img.shields.io/pypi/pyversions/locust.svg)](https://pypi.org/project/locust/)
+[![Supported Python Versions](https://img.shields.io/pypi/pyversions/locust?color=brightgreen)](https://pypi.org/project/locust/)
+[![Downloads](https://static.pepy.tech/personalized-badge/locust?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/locust)
 [![GitHub contributors](https://img.shields.io/github/contributors/locustio/locust.svg)](https://github.com/locustio/locust/graphs/contributors)
+[![Support Ukraine Badge](https://bit.ly/support-ukraine-now)](https://github.com/support-ukraine/support-ukraine)
+[![inspect.software](https://raw.githubusercontent.com/inspect-software/badges/main/v1/l/locustio/locust.svg)](https://inspect.software/software/locustio/locust)
 
-Locust is an easy to use, scriptable and scalable performance testing tool. You define the behaviour of your users in regular Python code, instead of using a clunky UI or domain specific language. This makes Locust infinitely expandable and very developer friendly.
+Locust is an open source performance/load testing tool for HTTP and other protocols. Its developer-friendly approach lets you define your tests in regular Python code.
+
+Locust tests can be run from command line or using its web-based UI. Throughput, response times and errors can be viewed in real time and/or exported for later analysis.
+
+You can import regular Python libraries into your tests, and with Locust's pluggable architecture it is infinitely expandable. Unlike when using most other tools, your test design will never be limited by a GUI or domain-specific language.
+
+To get started right away, head over to the [documentation](http://docs.locust.io/en/stable/installation.html).
 
 ## Features
 
-#### Write user test scenarios in plain-old Python
+#### Write user test scenarios in plain old Python
 
 If you want your users to loop, perform some conditional behaviour or do some calculations, you just use the regular programming constructs provided by Python. Locust runs every user inside its own greenlet (a lightweight process/coroutine). This enables you to write your tests like normal (blocking) Python code instead of having to use callbacks or some other mechanism. Because your scenarios are “just python” you can use your regular IDE, and version control your tests as regular code (as opposed to some other tools that use XML or binary formats)
 
 ```python
 from locust import HttpUser, task, between
 
+
 class QuickstartUser(HttpUser):
     wait_time = between(1, 2)
 
     def on_start(self):
-        self.client.post("/login", json={"username":"foo", "password":"bar"})
+        self.client.post("/login", json={"username": "foo", "password": "bar"})
 
     @task
     def hello_world(self):
@@ -43,7 +50,26 @@ Locust makes it easy to run load tests distributed over multiple machines. It is
 
 Locust has a user friendly web interface that shows the progress of your test in real-time. You can even change the load while the test is running. It can also be run without the UI, making it easy to use for CI/CD testing.
 
-<img src="https://raw.githubusercontent.com/locustio/locust/master/locust/static/img/ui-screenshot-charts.png" alt="Locust UI charts" width="200"/> <img src="https://raw.githubusercontent.com/locustio/locust/master/locust/static/img/ui-screenshot-stats.png" alt="Locust UI stats" width="200"/> <img src="https://raw.githubusercontent.com/locustio/locust/master/locust/static/img/ui-screenshot-workers.png" alt="Locust UI workers" width="200"/> <img src="https://raw.githubusercontent.com/locustio/locust/master/locust/static/img/ui-screenshot-start-test.png" alt="Locust UI start test" width="200"/>
+<picture>
+<source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/bottlenecked-server-light.png" alt="Locust UI charts" height="100" width="200"/>
+<source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/bottlenecked-server-dark.png" alt="Locust UI charts" height="100" width="200"/>
+<img src="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/bottlenecked-server-light.png" alt="Locust UI charts" height="100" width="200"/>
+</picture>
+<picture>
+<source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-running-statistics-light.png" alt="Locust UI stats" height="100" width="200"/>
+<source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-running-statistics-dark.png" alt="Locust UI stats" height="100" width="200"/>
+<img src="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-running-statistics-light.png" alt="Locust UI stats" height="100" width="200"/>
+</picture>
+<picture>
+<source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/locust-workers-light.png" alt="Locust UI workers" height="100" width="200"/>
+<source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/locust-workers-dark.png" alt="Locust UI workers" height="100" width="200"/>
+<img src="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/locust-workers-light.png" alt="Locust UI workers" height="100" width="200"/>
+</picture>
+<picture>
+<source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-splash-light.png" alt="Locust UI start test" height="100" width="200"/>
+<source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-splash-dark.png" alt="Locust UI start test" height="100" width="200"/>
+<img src="https://raw.githubusercontent.com/locustio/locust/refs/heads/master/docs/images/webui-splash-light.png" alt="Locust UI start test" height="100" width="200"/>
+</picture>
 
 #### Can test any system
 
@@ -51,23 +77,44 @@ Even though Locust primarily works with web sites/services, it can be used to te
 
 ## Hackable
 
-Locust is small and very flexible and we intend to keep it that way. If you want to [send reporting data to that database & graphing system you like](https://github.com/SvenskaSpel/locust-plugins/blob/master/locust_plugins/listeners.py), wrap calls to a REST API to handle the particulars of your system or run a [totally custom load pattern](https://docs.locust.io/en/latest/generating-custom-load-shape.html#generating-custom-load-shape), there is nothing stopping you!
+Locust's code base is intentionally kept small and doesn't solve everything out of the box. Instead, we try to make it easy to adapt to any situation you may come across, using regular Python code. There is nothing stopping you from: 
+
+* [Send real time reporting data to TimescaleDB and visualize it in Grafana](https://github.com/SvenskaSpel/locust-plugins/blob/master/locust_plugins/dashboards/README.md)
+* [Wrap calls to handle the peculiarities of your REST API](https://github.com/SvenskaSpel/locust-plugins/blob/8af21862d8129a5c3b17559677fe92192e312d8f/examples/rest_ex.py#L87) 
+* [Use a totally custom load shape/profile](https://docs.locust.io/en/stable/configuration.html#custom-load-shape)
+* [...](https://github.com/locustio/locust/wiki/Extensions)
+
+## VS Code extension
+
+Microsoft has built an excellent [VS Code extension](https://learn.microsoft.com/azure/app-testing/load-testing/quickstart-create-run-load-tests-from-visual-studio-code) that uses [Copilot](https://github.com/features/copilot) to help you create and run Locust tests. Here's a video to get you started:
+
+[![Youtube video](https://img.youtube.com/vi/J4pIBwocmvE/maxresdefault.jpg)](https://youtu.be/J4pIBwocmvE)
+
+## Azure Load Testing
+
+Azure offers [a managed load-testing service](https://learn.microsoft.com/azure/app-testing/load-testing/quickstart-create-and-run-load-test) that lets you run and scale Locust tests easily. 
+
+* Scalable and flexible, with no need to host your own infrastructure
+* If your application is hosted on Azure, it can combine test results with detailed resource metrics to help pinpoint bottlenecks and optimize performance.
+* Integrates well with Azure DevOps and GitHub for CI/CD pipelines, enabling automated performance testing as part of your development workflow.
 
 ## Links
 
-* Website: [locust.io](https://locust.io)
 * Documentation: [docs.locust.io](https://docs.locust.io)
-* Code/issues: [Github](https://github.com/locustio/locust)
 * Support/Questions: [StackOverflow](https://stackoverflow.com/questions/tagged/locust)
-* Chat/discussion: [Slack signup](https://slack.locust.io/)
+* Chat/discussion: [Discord](https://discord.gg/faeXQY82Zs)
+* Blog: [medium.com](https://medium.com/locust)
 
 ## Authors
 
-* [Carl Bystr](http://cgbystrom.com) ([@cgbystrom](https://twitter.com/cgbystrom) on Twitter)
-* [Jonatan Heyman](http://heyman.info) ([@jonatanheyman](https://twitter.com/jonatanheyman) on Twitter)
-* [Joakim Hamrén](https://github.com/Jahaja) ([@Jahaaja](https://twitter.com/Jahaaja) on Twitter)
-* [Hugo Heyman](https://github.com/HeyHugo) ([@hugoheyman](https://twitter.com/hugoheyman) on Twitter)
-* [Lars Holmberg](https://github.com/cyberw)
+* Maintainer: [Lars Holmberg](https://github.com/cyberw)
+* UI: [Andrew Baldwin](https://github.com/andrewbaldwin44)
+* Original creator: [Jonatan Heyman](https://github.com/heyman)
+* Massive thanks to [all of our contributors](https://github.com/locustio/locust/graphs/contributors)
+
+## Special thanks
+
+<img src="docs/images/microsoft_logo.svg" height="15px"> [Microsoft](https://learn.microsoft.com/azure/app-testing/load-testing/quickstart-create-and-run-load-test) contributes to and sponsors the continued maintenance of Locust ❤️
 
 ## License
 

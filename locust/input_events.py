@@ -1,16 +1,22 @@
-import gevent
+from __future__ import annotations
+
+import collections
 import logging
 import os
 import sys
+from collections.abc import Callable
+
+import gevent
 
 if os.name == "nt":
+    import pywintypes
     from win32api import STD_INPUT_HANDLE
     from win32console import (
-        GetStdHandle,
-        KEY_EVENT,
         ENABLE_ECHO_INPUT,
         ENABLE_LINE_INPUT,
         ENABLE_PROCESSED_INPUT,
+        KEY_EVENT,
+        GetStdHandle,
     )
 else:
     import select
@@ -35,7 +41,7 @@ class UnixKeyPoller:
         termios.tcsetattr(self.stdin, termios.TCSANOW, self.tattr)
 
     def poll(_self):
-        dr, dw, de = select.select([sys.stdin], [], [], 0)
+        dr, _dw, _de = select.select([sys.stdin], [], [], 0)
         if not dr == []:
             return sys.stdin.read(1)
         return None
@@ -44,11 +50,14 @@ class UnixKeyPoller:
 class WindowsKeyPoller:
     def __init__(self):
         if sys.stdin.isatty():
-            self.read_handle = GetStdHandle(STD_INPUT_HANDLE)
-            self.read_handle.SetConsoleMode(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT)
-            self.cur_event_length = 0
-            self.cur_keys_length = 0
-            self.captured_chars = []
+            try:
+                self.read_handle = GetStdHandle(STD_INPUT_HANDLE)
+                self.read_handle.SetConsoleMode(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT)
+                self.cur_event_length = 0
+                self.cur_keys_length = 0
+                self.captured_chars = collections.deque()
+            except pywintypes.error:
+                raise InitError("Terminal says its a tty but we couldn't enable line input. Keyboard input disabled.")
         else:
             raise InitError("Terminal was not a tty. Keyboard input disabled")
 
@@ -57,7 +66,7 @@ class WindowsKeyPoller:
 
     def poll(self):
         if self.captured_chars:
-            return self.captured_chars.pop(0)
+            return self.captured_chars.popleft()
 
         events_peek = self.read_handle.PeekConsoleInput(10000)
 
@@ -74,7 +83,7 @@ class WindowsKeyPoller:
             self.cur_event_length = len(events_peek)
 
         if self.captured_chars:
-            return self.captured_chars.pop(0)
+            return self.captured_chars.popleft()
         else:
             return None
 
@@ -86,18 +95,17 @@ def get_poller():
         return UnixKeyPoller()
 
 
-def input_listener(key_to_func_map):
+def input_listener(key_to_func_map: dict[str, Callable]):
     def input_listener_func():
         try:
             poller = get_poller()
         except InitError as e:
-            logging.info(e)
+            logging.debug(e)
             return
 
         try:
             while True:
-                input = poller.poll()
-                if input:
+                if input := poller.poll():
                     for key in key_to_func_map:
                         if input == key:
                             key_to_func_map[key]()

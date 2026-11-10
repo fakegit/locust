@@ -2,7 +2,844 @@
 Changelog Highlights
 ####################
 
-For full details of the Locust changelog, please see https://github.com/locustio/locust/blob/master/CHANGELOG.md
+For full details of changes, please see https://github.com/locustio/locust/releases or https://github.com/locustio/locust/blob/master/CHANGELOG.md
+
+2.44.2 and onwards
+==================
+* This file will no longer be updated for each release. Check the github releases page instead!
+
+2.44.1
+======
+* Docs updates: Mention aiolocust and azure load testing, https://github.com/locustio/locust/pull/3414, guard custom web routes without web UI https://github.com/locustio/locust/pull/3416
+* Add logging support to for OTEL, update OTEL resource https://github.com/locustio/locust/pull/3421, https://github.com/locustio/locust/pull/3420
+
+2.44.0
+======
+* Add first seen / last seen timestamps to failure stats https://github.com/locustio/locust/pull/3403
+* Various fixes for FastHttpUser (https://github.com/locustio/locust/pull/3398, https://github.com/locustio/locust/pull/3405, https://github.com/locustio/locust/pull/3406, https://github.com/locustio/locust/pull/3397)
+* Add AI-optimized documentation (llms.txt) https://github.com/locustio/locust/pull/3399
+* Add CsvRequestLogger for per-request CSV logging https://github.com/locustio/locust/pull/3404
+
+2.43.4
+======
+* MqttUser: Work around the paho mqtt 340 connections limit https://github.com/locustio/locust/pull/3268
+* Add Qdrant support https://github.com/locustio/locust/pull/3354
+* Extract response time bucketing into an overridable function https://github.com/locustio/locust/pull/3373
+* Add locust-otel Docker image with OpenTelemetry dependencies https://github.com/locustio/locust/pull/3379
+* Fix false "--run-time limit reached" log message when shape test completes https://github.com/locustio/locust/pull/3382
+* fix: use total_rps instead of current_rps in HTML report and navbar stats https://github.com/locustio/locust/pull/3384
+* Bump various dependencies
+
+2.43.3
+======
+* Update dependencies and some documentation, no functional changes
+
+2.43.2
+======
+* Upgrade various dependencies, no functional changes https://github.com/locustio/locust/pull/3339, https://github.com/locustio/locust/pull/3343,  https://github.com/locustio/locust/pull/3342, https://github.com/locustio/locust/pull/3341, https://github.com/locustio/locust/pull/3340
+
+2.43.1
+======
+* Upgrade various Web UI dependencies, no other changes
+
+2.43.0
+======
+* Capture stacktrace on KeyboardInterrupt on greenlets https://github.com/locustio/locust/pull/3306
+* Solving iter_lines problem https://github.com/locustio/locust/pull/3311
+* Allow users to stop test run by raising StopTest, use it on missing host https://github.com/locustio/locust/pull/3313
+* Remove references to locust.cloud now that it is shutting down https://github.com/locustio/locust/pull/3314
+* Support requests>=2.32.5, reimplement the fix previously there for only loading ssl certificates once https://github.com/locustio/locust/pull/3316
+
+2.42.6
+======
+* GH Actions: Bump actions/checkout from 5 to 6 https://github.com/locustio/locust/pull/3287
+* Fix Toml Parser Being Called on .conf Files https://github.com/locustio/locust/pull/3293
+* Log duplicate client_ready messages as debug instead of info level https://github.com/locustio/locust/pull/3296
+* Various minor code modernization https://github.com/locustio/locust/pull/3299, https://github.com/locustio/locust/pull/3301
+* Don't import pytest unless it is really needed, to speed up startup https://github.com/locustio/locust/pull/3296
+
+2.42.5
+======
+* Log when otel is enabled https://github.com/locustio/locust/pull/3284
+
+2.42.4
+======
+* Update pytest dependency range https://github.com/locustio/locust/pull/3263
+* Allow multiple dropdown in Web UI https://github.com/locustio/locust/pull/3261
+* Add OpenTelemetry support https://github.com/locustio/locust/pull/3275, https://github.com/locustio/locust/pull/3276, https://github.com/locustio/locust/pull/3278, https://github.com/locustio/locust/pull/3279
+
+2.42.3
+======
+* Fix single line .conf files incorrectly being treated as toml https://github.com/locustio/locust/pull/3257
+* Update various GitHub actions used in the build https://github.com/locustio/locust/pull/3266, https://github.com/locustio/locust/pull/3259
+
+2.42.2
+======
+* Remove setuptools from dependencies https://github.com/locustio/locust/pull/3253
+* Fix an issue with .conf-files https://github.com/locustio/locust/pull/3256
+
+2.42.1
+======
+
+* Add VS Code Extension and k8s Operator to documentation https://github.com/locustio/locust/pull/3251
+
+2.42.0
+======
+* Introduce DNSUser https://github.com/locustio/locust/pull/3243
+* Dependencies: allow gevent >25.8.1, avoid python-requests >2.32.5
+
+2.41.6
+======
+* Officially support Python 3.14 https://github.com/locustio/locust/pull/3235
+
+2.41.5
+======
+* Fix FastHttpUser handling of 308 response code
+* Fix Unsafe Template Arg https://github.com/locustio/locust/pull/3232
+
+2.41.4
+======
+(skipped because of failed publishing)
+
+2.41.3
+======
+* Make workers correctly ignore the --run-time flag https://github.com/locustio/locust/pull/3230
+
+2.41.2
+======
+* Fix Alignment of View Column Selector https://github.com/locustio/locust/pull/3226
+* Pytest plugin: Workaround issue with potential duplicate --host argument definition https://github.com/locustio/locust/pull/3228
+
+2.41.1
+======
+* Fix incorrect url for feedback form
+
+2.41.0
+======
+* Suggest possibly misspelled command line arguments (Did you mean ...) https://github.com/locustio/locust/pull/3224
+* Add Feedback Form https://github.com/locustio/locust/pull/3223
+* Add MqttUser https://github.com/locustio/locust/pull/3216
+
+2.40.5
+======
+* Avoid wrapping FastResponse in response context manager when not needed https://github.com/locustio/locust/pull/3222
+
+2.40.4
+======
+* Avoid pytest style locustfiles capturing keyboard input https://github.com/locustio/locust/pull/3219
+
+2.40.3
+======
+* Make ResponseContextManager.raise_for_status() consider calls to failure() and success() https://github.com/locustio/locust/pull/3217
+
+2.40.2
+======
+* Refactor clients.ResponseContextManager and fix GC issue https://github.com/locustio/locust/pull/3210
+* Refactor SocketIOUser to create separate SocketIOClient class https://github.com/locustio/locust/pull/3211
+
+2.40.1
+======
+* Pytest plugin: Delay imports to avoid monkey patching until someone actually uses the fixtures https://github.com/locustio/locust/pull/3204 https://github.com/locustio/locust/pull/3205
+
+2.40.0
+======
+* Add support for pytests as locustfiles https://github.com/locustio/locust/pull/3200
+* Refactor FastHttpSession slightly https://github.com/locustio/locust/pull/3198
+* Update Dockerfile base to Python 3.13 https://github.com/locustio/locust/pull/3193
+
+2.39.1
+======
+* Avoid broken gevent version for now by @cyberw in https://github.com/locustio/locust/pull/3196
+
+2.39.0
+======
+* Add MilvusUser https://github.com/locustio/locust/pull/3168
+* Add SocketIOUser https://github.com/locustio/locust/pull/3189
+
+2.38.1
+======
+* FastHttpUser: Dont send zstd in Accept-Encoding header https://github.com/locustio/locust/pull/3188
+
+2.38.0
+======
+* Add MarkovTaskSet https://github.com/locustio/locust/pull/3176
+* Support for list based custom arguments https://github.com/locustio/locust/pull/3181
+* Webui fixes https://github.com/locustio/locust/pull/3177 & https://github.com/locustio/locust/pull/3185
+
+2.37.14
+=======
+* Web UI: Fix Chart Zoom Slider https://github.com/locustio/locust/pull/3174
+
+2.37.13
+=======
+* Web UI: Shrink Bundle Size by https://github.com/locustio/locust/pull/3169
+* Remove safe_name from /stats/requests response https://github.com/locustio/locust/pull/3171
+
+2.37.12
+=======
+* Attempt to increase open file limit (RLIMIT_NOFILE) even on master https://github.com/locustio/locust/pull/3162
+
+2.37.11
+=======
+* Web UI: Always Warn of Invalid Host https://github.com/locustio/locust/pull/3155
+* locust-cloud: bump minimum version and support multiple locustfiles https://github.com/locustio/locust/pull/3157 / https://github.com/locustcloud/locust-cloud/pull/38
+
+2.37.10
+=======
+* Revert accidental removal of --json-file option https://github.com/locustio/locust/pull/3154
+
+2.37.9
+======
+* Web UI: Fix host field name missing if host is not required https://github.com/locustio/locust/pull/3152
+
+2.37.8
+======
+* Allow 25.x versions of gevent https://github.com/locustio/locust/pull/3151
+
+2.37.7
+======
+* Web Ui: Add host field validation https://github.com/locustio/locust/pull/3149
+
+2.37.6
+======
+* Doc updates, including a fix for config options https://github.com/locustio/locust/pull/3145
+* Bumped minimum ConfigArgParse dependency to 1.7.1
+
+2.37.5
+======
+* Locust Cloud: Stop requiring a locustfile when doing --login or --delete https://github.com/locustio/locust/pull/3141
+
+2.37.4
+======
+* Bump minimum version of locust-cloud
+
+2.37.3
+======
+* Webui: Warn on Missing Host https://github.com/locustio/locust/pull/3140
+
+2.37.2
+======
+* Improve the performance of the `/stats/requests` endpoint when there are >500 unique request names https://github.com/locustio/locust/pull/3136
+* Webui: Block starting test in distributed mode until workers have connected https://github.com/locustio/locust/pull/3138
+
+2.37.1
+======
+* Fix --json-file https://github.com/locustio/locust/pull/3131
+
+2.37.0
+======
+* Update uv to 0.7.2
+* Add --json-file by https://github.com/locustio/locust/pull/3124
+* Minor fixes
+
+2.36.3
+======
+* Bump minimum locust-cloud version + some minor fixes
+
+2.36.2
+======
+* Remove circular dependency between locust and locust-cloud https://github.com/locustio/locust/pull/3119
+
+2.36.1
+======
+* Ensure correct version of gevent on Python 3.12
+
+2.36.0
+======
+* Add locust-cloud as a dependency, so you can now run it using ``locust --cloud`` https://github.com/locustio/locust/pull/3097
+* Various minor UI fixes & changes to build process https://github.com/locustio/locust/pull/3104, https://github.com/locustio/locust/pull/3107, https://github.com/locustio/locust/pull/3116
+* Refactorings in main() https://github.com/locustio/locust/pull/3101, https://github.com/locustio/locust/pull/3102
+* Narrow gevent version requirements to avoid incompatible new version for now https://github.com/locustio/locust/pull/3112
+
+2.35.0
+======
+* Add profile argument and display in html report https://github.com/locustio/locust/pull/3093
+* Various UI fixes and dependency updates
+
+2.34.1
+======
+* Drop support for Python 3.9 https://github.com/locustio/locust/pull/3090
+
+2.34.0
+======
+* Add experimental OpenAIUser and example https://github.com/locustio/locust/pull/3081
+* Make the Locust UI Responsive and work for smaller screens https://github.com/locustio/locust/pull/3083, https://github.com/locustio/locust/pull/3086
+* Tiny fixes & version bumps
+
+2.33.2
+======
+* Optimize docker startup time https://github.com/locustio/locust/pull/3073
+* Various dependency updates
+
+2.33.1
+======
+* Fix html report file naming crash https://github.com/locustio/locust/pull/3072
+
+2.33.0
+======
+* Press enter to automatically open web UI in browser https://github.com/locustio/locust/pull/3057
+* Enable HTML Report Filename Parsing https://github.com/locustio/locust/pull/3049
+* Various minor fixes and dependency updates
+
+2.32.10
+=======
+* Use uv/hatch instead of Poetry https://github.com/locustio/locust/pull/3039
+
+2.32.9
+======
+* Fix issue where empty WebUI property is not parsed correctly https://github.com/locustio/locust/pull/3012
+* Add iter_lines method to FastHttpSession https://github.com/locustio/locust/pull/3024
+
+2.32.8
+======
+* Fix a single broken link in the UI
+
+2.32.7
+======
+* Fix readme image ref links by @changchaishi in https://github.com/locustio/locust/pull/3031
+* Add tab showing `Locust Cloud <https://www.locust.cloud>`_ features https://github.com/locustio/locust/pull/3032
+* Minor UI enhancements https://github.com/locustio/locust/pull/3035, https://github.com/locustio/locust/pull/3036, https://github.com/locustio/locust/pull/3037
+* Code quality: Fix unused imports and switch on related ruff check https://github.com/locustio/locust/pull/3034
+
+2.32.6
+======
+* Update Dockerfile to use Python 3.12 https://github.com/locustio/locust/pull/3029
+* Remove deprecated --hatch-rate parameter https://github.com/locustio/locust/pull/3026
+
+2.32.5
+======
+* Treat exceptions in init event handler as fatal https://github.com/locustio/locust/pull/3009
+* FastHttpUser: Fix SSL certificate loading performance issue https://github.com/locustio/locust/pull/3013
+* Delay CPU usage checks to make it less likely to generate false positives during process startup https://github.com/locustio/locust/pull/3014
+
+2.32.4
+======
+* Minor doc updates https://github.com/locustio/locust/pull/2990, https://github.com/locustio/locust/pull/2989, https://github.com/locustio/locust/pull/2993
+* UI fixes and dependency updates https://github.com/locustio/locust/pull/2992 https://github.com/locustio/locust/pull/2997, https://github.com/locustio/locust/pull/3002, https://github.com/locustio/locust/pull/2999
+* Fix missing last requests in web UI https://github.com/locustio/locust/pull/3001
+
+2.32.3
+======
+* Add option for Extra Options to be Required https://github.com/locustio/locust/pull/2981
+* Use debug log level for first 5s of waiting for workers to be ready https://github.com/locustio/locust/pull/2982
+* Ensure we never use old version of setuptools https://github.com/locustio/locust/pull/2988
+
+2.32.2
+======
+* Better html report file names https://github.com/locustio/locust/pull/2947
+* Fix Incorrectly Updating Stat History https://github.com/locustio/locust/pull/2972
+* Various WebUI fixes (most only relevant for https://locust.cloud)
+
+2.32.1
+======
+* Various WebUI fixes (most only relevant for https://locust.cloud)
+* LocustBadStatusCode without url param in fasthttp https://github.com/locustio/locust/pull/2944
+
+2.32.0
+======
+* Explicitly support Python 3.13 https://github.com/locustio/locust/pull/2939
+* Log deprecation warning for Python 3.9 https://github.com/locustio/locust/pull/2940
+* Decide if ipv6 can work (especially relevant for EKS) https://github.com/locustio/locust/pull/2923
+* Various minor fixes
+
+2.31.8
+======
+* Minor fixes, nothing worth mentioning.
+
+2.31.7
+======
+* Log locust version earlier https://github.com/locustio/locust/pull/2904
+* Improve Web UI Logging https://github.com/locustio/locust/pull/2911
+
+2.31.6
+======
+* Various documentation and type hint fixes.
+* Fix issue when using --config-users to set weight to 0 https://github.com/locustio/locust/pull/2891
+* Add worker_count = 1 to LocalRunner for parity with MasterRunner https://github.com/locustio/locust/pull/2900/files
+* Tiny WebUI fixes https://github.com/locustio/locust/pull/2901, https://github.com/locustio/locust/pull/2902
+
+2.31.5
+======
+* WebUI: Correct types for form select https://github.com/locustio/locust/pull/2872
+* Web UI Remove Scroll to Zoom https://github.com/locustio/locust/pull/2876
+* Webui Remove chart initial data fetch https://github.com/locustio/locust/pull/2878
+* Improved Build Pipeline https://github.com/locustio/locust/pull/2873, https://github.com/locustio/locust/pull/2879, https://github.com/locustio/locust/pull/2880
+
+2.31.4
+======
+* Publish UI NPM package to simplify use from custom UIs (https://locust.cloud)
+* Some tiny UI fixes
+
+2.31.3
+======
+* Use new logo in web UI + some minor improvements https://github.com/locustio/locust/pull/2844, https://github.com/locustio/locust/pull/2840, https://github.com/locustio/locust/pull/2846, https://github.com/locustio/locust/pull/2850, https://github.com/locustio/locust/pull/2847, https://github.com/locustio/locust/pull/2855
+* Update GitHub action versions https://github.com/locustio/locust/pull/2853
+
+2.31.2
+======
+* Prebuild UI in PyPi publish steps so that even source distributions contain web UI code https://github.com/locustio/locust/pull/2839
+
+2.31.1
+======
+* Fix issue with downloading HTML report https://github.com/locustio/locust/pull/2834
+
+2.31.0
+======
+* Fix HTML Report Stats Table https://github.com/locustio/locust/pull/2817
+* URL Directory, and Multi-File Support for Locustfile Distribution https://github.com/locustio/locust/pull/2766
+* Various UI improvements https://github.com/locustio/locust/pull/2815, https://github.com/locustio/locust/pull/2804, https://github.com/locustio/locust/pull/2824, https://github.com/locustio/locust/pull/2825, https://github.com/locustio/locust/pull/2826, https://github.com/locustio/locust/pull/2828
+* Fix docker image build https://github.com/locustio/locust/pull/2830
+
+2.30.0
+======
+* FastHttpSession: Enable passing json as a positional argument for post() and stop converting response times to int https://github.com/locustio/locust/pull/2772
+* New events for heartbeat and usage monitor https://github.com/locustio/locust/pull/2777
+* SequentialTaskSet: Allow weighted tasks and dict in .tasks (experimental) https://github.com/locustio/locust/pull/2742
+* Implement Poetry build system (mainly so we don't have to commit the built frontend resources to git) https://github.com/locustio/locust/pull/2725
+* UI: Replace total avg response time with 50 percentile (avg was broken) https://github.com/locustio/locust/pull/2806
+* Avoid deadlock in gevent/urllib3 connection pool (fixes occasional worker heartbeat timeouts) https://github.com/locustio/locust/pull/2813
+* This release got no docker image due to a build error
+
+2.29.1
+======
+* Add option to Skip Monkey Patching with LOCUST_SKIP_MONKEY_PATCH https://github.com/locustio/locust/pull/2765
+* HttpSession requests typing https://github.com/locustio/locust/pull/2699
+* Add proxy support for FastHttpUser https://github.com/locustio/locust/pull/2758
+
+2.29.0
+======
+* Ensure spawning_complete only happens once on workers https://github.com/locustio/locust/pull/2728
+* Correct time in the downloaded HTML report https://github.com/locustio/locust/pull/2729
+* Add date and zoom to charts in web UI https://github.com/locustio/locust/pull/2731
+* Send logs from workers to master and improve log viewer tab in the Web UI https://github.com/locustio/locust/pull/2750
+* Docs: Upgrade Sphinx and theme, Fix API TOC, import wiki to docs, and mention installing Locust in Building the Docs
+
+2.28.0
+======
+* Remove legacy UI https://github.com/locustio/locust/pull/2703
+* Stop HTML escaping errors for /stats/requests endpoint https://github.com/locustio/locust/pull/2710
+* Various minor UI & logging improvements
+
+2.27.0
+======
+* Simplify how locustfiles are found (using -f). Don’t automatically append .py https://github.com/locustio/locust/pull/2655
+* Use more efficient algorithm to calculate user distribution, and allow float weights https://github.com/locustio/locust/pull/2686
+* Various minor fixes
+
+2.26.0
+======
+* Drop support for Python 3.8
+* Update geventhttpclient and adjust FastHttpUser max_retries / max_redirects (https://github.com/locustio/locust/pull/2676)
+* Pin gevenhttpclient version (https://github.com/locustio/locust/pull/2682)
+
+2.25.0
+======
+* Add functionality to run listener functions for `custom_messages` concurrently (https://github.com/locustio/locust/pull/2650)
+* Update User Classes in Distributed Mode (https://github.com/locustio/locust/pull/2666)
+* Log deprecation warning for --legacy-ui (https://github.com/locustio/locust/pull/2670)
+* Fix UserClasses weight distribution with gcd (https://github.com/locustio/locust/pull/2663)
+
+2.24.1
+======
+* Some documentation updates & minor fixes to UI
+* Fixes to FastHttpUser content streaming (https://github.com/locustio/locust/pull/2642, https://github.com/locustio/locust/pull/2643)
+
+2.24.0
+======
+* Pluggable dispatcher logic https://github.com/locustio/locust/pull/2606
+* pyproject.toml support for Locust configuration file https://github.com/locustio/locust/pull/2612
+* Minor fixes
+
+2.23.1
+======
+* Fixes for locustfile download https://github.com/locustio/locust/pull/2599
+* UI fixes https://github.com/locustio/locust/pull/2600 https://github.com/locustio/locust/pull/2601
+
+2.23.0
+======
+* UI updates (https://github.com/locustio/locust/pull/2589, https://github.com/locustio/locust/pull/2590, https://github.com/locustio/locust/pull/2596)
+* Locustfile distribution from master to worker https://github.com/locustio/locust/pull/2583
+* Allow getting locust files from http urls https://github.com/locustio/locust/pull/2595
+* Use exec_module() when loading locustfile instead of the deprecated load_module() https://github.com/locustio/locust/pull/2576
+
+2.22.0
+======
+* Use Modern UI by default, remove --modern-ui and add --legacy-ui parameters https://github.com/locustio/locust/pull/2569
+
+2.21.0
+======
+* Switch from flake8 + black to ruff for linting and formatting of code
+* Update shape class' runner when Web UI picker is used by https://github.com/locustio/locust/pull/2534
+* Web UI Modern Auth https://github.com/locustio/locust/pull/2538
+* Customization Feature for Percentile Display on Statistics Page https://github.com/locustio/locust/pull/2550
+* Allow User weight adjustment (and task selection) in UI when running with --class-picker, or on command line with --config-users argument https://github.com/locustio/locust/pull/2559
+* Optimize memory usage when using --processes https://github.com/locustio/locust/pull/2564
+
+2.20.1
+======
+* run_single_user improvements https://github.com/locustio/locust/pull/2519
+* Support IPv6 for zmq connection between master and worker https://github.com/locustio/locust/pull/2521
+* Modern UI: Update Vite to 4.5.1 https://github.com/locustio/locust/pull/2530
+* Other tiny fixes
+
+2.20.0
+======
+* Add event.measure context manager for simpler firing of request event (experimental) https://github.com/locustio/locust/pull/2511
+* Various improvements to modern UI https://github.com/locustio/locust/pull/2491
+* Various tiny fixes
+
+2.19.1
+======
+* Create any directories as part of the CSV Prefix https://github.com/locustio/locust/pull/2481
+* Dont suppress StopUser or GreenletExit in on_stop https://github.com/locustio/locust/pull/2486
+* FastHttpUser: Detect response text encoding when no information is present in headers https://github.com/locustio/locust/pull/2485
+
+2.19.0
+======
+* Add --processes parameter to automatically fork subprocesses for workers https://github.com/locustio/locust/pull/2472
+* Automatically shut down workers if master goes missing for too long https://github.com/locustio/locust/pull/2474
+* Update minimum version of various dependencies https://github.com/locustio/locust/pull/2476
+
+2.18.4
+======
+* Various fixes to Modern UI
+* Ensure to wait a second before next call to LoadTestShape's tick() https://github.com/locustio/locust/pull/2465
+
+2.18.3
+======
+* Modern UI: Add sorting to columns on statistics page and downloaded report https://github.com/locustio/locust/pull/2453
+
+2.18.2
+======
+* FastHttpUser: encoding return str when response is empty https://github.com/locustio/locust/pull/2451
+
+2.18.1
+======
+* Add Log Viewer to Modern UI https://github.com/locustio/locust/pull/2440
+
+2.18.0
+======
+* Add a modern web UI based on React, MaterialUI and Vite (activated using --modern-ui) https://github.com/locustio/locust/pull/2405
+* Stop supporting Python 3.7 https://github.com/locustio/locust/pull/2421
+* Fix too long first wait time for constant_pacing (and constant_throughput) https://github.com/locustio/locust/pull/2428
+
+2.17.0
+======
+* Support user abstract load shape base classes https://github.com/locustio/locust/pull/2393
+* Allow LoadShapes to reuse run-time, spawn-rate and users parameters https://github.com/locustio/locust/pull/2395
+* Improve performance for statistics handling https://github.com/locustio/locust/pull/2410
+* Test and explicitly support Python 3.12 https://github.com/locustio/locust/pull/2411
+
+2.16.1
+======
+* Deprecate LOCUST_PLAYWRIGHT env var https://github.com/locustio/locust/pull/2378
+* Import locust_plugins if available to give access to its custom command line arguments https://github.com/locustio/locust/pull/2379
+
+2.16.0
+======
+* Add worker_connect event https://github.com/locustio/locust/pull/2344
+* Allow selecting user classes using LOCUST_USER_CLASSES env var https://github.com/locustio/locust/pull/2355
+* Web UI dropdown for custom args with choices https://github.com/locustio/locust/pull/2372
+* Various minor fixes
+
+2.15.1
+======
+* Add PERCENTILES_TO_CHART param in stats.py to make the Response Time Chart configurable https://github.com/locustio/locust/pull/2313
+
+2.15.0
+======
+* Add is_secret option for custom args to be shown in the web UI masked https://github.com/locustio/locust/pull/2284
+* Breaking change: Remove deprecated request_success and request_failure event handlers (unified request handler was introduced in 1.5) https://github.com/locustio/locust/pull/2306
+
+2.14.2
+======
+* Re-add py.typed marker file to package (it was missing in 2.14.1) https://github.com/locustio/locust/pull/2282
+
+2.14.1
+======
+* Add --json to send stats to stdout as json by @AndersSpringborg in https://github.com/locustio/locust/pull/2269
+
+2.14.0
+======
+* Add rest method to FastHttpUser to facilitate easy REST/JSON API testing https://github.com/locustio/locust/pull/2274
+
+2.13.2
+======
+* Fix: Ask worker to reconnect if master gets a broken RPC message by @marcinh in https://github.com/locustio/locust/pull/2271
+
+2.13.1
+======
+* Document har2locust (auto generation of locustfiles from browser recordings) https://github.com/locustio/locust/pull/2259
+* Dont reset connection to worker if master receives a corrupted zmq message by @marcinh in https://github.com/locustio/locust/pull/2266
+* Other minor fixes
+
+2.13.0
+======
+* Add the ability to set default_headers on FastHttpUser https://github.com/locustio/locust/pull/2231
+* Web UI: URL link on the host name for easy navigation by @JonanOribe in https://github.com/locustio/locust/pull/2228
+* Add support for time strings for --stop timeout (e.g. "5m30s") @cyberw in https://github.com/locustio/locust/pull/2239
+
+2.12.1
+======
+* Allow setting run time from the web UI & http api by @ajt89 in https://github.com/locustio/locust/pull/2202
+* Various fixes
+
+2.12.0
+======
+* LoadTestShapes with custom user classes https://github.com/locustio/locust/pull/2181
+* Minor fixes and bumped some dependencies
+
+2.11.1
+======
+* Fix issue when editing user count while running a test using --class-picker https://github.com/locustio/locust/pull/2171
+* Various minor logging fixes
+
+2.11.0
+======
+* Allow passing multiple Locustfiles, allow selecting User and Shape class from the WebUI https://github.com/locustio/locust/pull/2137
+* Add 'worker_index' to WorkerRunner https://github.com/locustio/locust/pull/2155
+* Fix: Ensure new test starts with specified number of users after previous test has been stopped https://github.com/locustio/locust/pull/2152
+
+2.10.2
+======
+* Fix for Flask 2.2.0 breaking changes https://github.com/locustio/locust/pull/2148
+
+2.10.1
+======
+* Increase CONNECT_RETRY_COUNT to avoid workers giving up too soon if master is not up yet by https://github.com/locustio/locust/pull/2125
+
+2.10.0
+======
+* Add ack for worker connection https://github.com/locustio/locust/pull/2077 (note that 2.10 workers will not work with a 2.9 master)
+* add support for custom SSLContext when using FastHttpUser https://github.com/locustio/locust/pull/2113
+* More robust handling of ZMQ/RPC errors https://github.com/locustio/locust/pull/2120 / https://github.com/locustio/locust/pull/2096
+* Full Changelog https://github.com/locustio/locust/compare/2.9.0...2.10.0
+
+2.9.0
+=====
+
+* FastHttpUser improvements (including a rename of parameter "url" to "path") https://github.com/locustio/locust/pull/2083
+* Modernized build https://github.com/locustio/locust/pull/2070
+* Drop support for Python 3.6 https://github.com/locustio/locust/pull/2080
+* Add table linkage in UI https://github.com/locustio/locust/pull/2082
+* Uniform style of stats/report ascii tables https://github.com/locustio/locust/pull/2084
+* Remove explicit version requirement for jinja2 https://github.com/locustio/locust/pull/2090
+* Rebalance users even when using fixed_count https://github.com/locustio/locust/pull/2093
+* Avoid using incompatible pyzmq 23 https://github.com/locustio/locust/pull/2100
+
+2.8.6
+=====
+
+* Support sharing connection pools between users https://github.com/locustio/locust/pull/2059
+* Add cpu_warning event, so listeners can do some action when CPU usage is too high https://github.com/locustio/locust/pull/2067
+
+2.8.5
+=====
+
+* Fix dependency: Dont use latest Jinja2 because it has breaking changes
+
+2.8.4
+=====
+
+* New event: `test_stopping`, triggered just before stopping the test https://github.com/locustio/locust/pull/2033
+* New event: `quit`, to enable getting the locust process exit code https://github.com/locustio/locust/pull/2049
+* Fix users sometimes not being stopped correctly https://github.com/locustio/locust/pull/2041
+
+2.8.3
+=====
+
+* Ensure users are distributed evently across hosts during ramp up https://github.com/locustio/locust/pull/2025 
+
+2.8.2
+=====
+
+* Fix issue with permissions in docker image
+
+2.8.1
+=====
+
+* Further optimize docker image (60MB compressed)
+
+2.8.0
+=====
+
+* Shrink docker image significantly (95MB compressed size for x64 instead of 358MB) by basing the image on python3-slim instead of python3 
+* Fix empty tasks section in UI and static report bug (really) https://github.com/locustio/locust/pull/2001
+
+2.7.3
+=====
+
+* Fix 'Tasks' section remains empty in web ui https://github.com/locustio/locust/pull/1997
+
+2.7.2
+=====
+
+* Fix an issue introduced in 2.7.1 that caused Locust to shut down when the UI stop was clicked https://github.com/locustio/locust/pull/1996
+
+2.7.1
+=====
+* fix --html report in web mode https://github.com/locustio/locust/pull/1992
+
+2.7.0
+=====
+
+* Add run_single_user and documentation on how to debug Users/locustfiles https://github.com/locustio/locust/pull/1985
+* Fix "socket operation on non-socket" at shutdown, by reverting #1935 https://github.com/locustio/locust/pull/1991
+* Fixing issue with incorrect "All users spawned" log messages https://github.com/locustio/locust/pull/1977
+
+2.6.1
+=====
+
+* Documentation fixes only.
+
+2.6.0
+=====
+* Pass --tags and --exclude-tags to workers. (https://github.com/locustio/locust/pull/1976)
+* Clean up some logging messages (https://github.com/locustio/locust/pull/1973)
+* Ensure heartbeat\_worker doesn't try to re-establish connection to workers when quit has been called (https://github.com/locustio/locust/pull/1972)
+* fixed\_count: ability to spawn a specific number of users \(as opposed to just using weights\) (https://github.com/locustio/locust/pull/1964)
+
+2.5.1
+=====
+
+* Ignore empty host field in web ui (Fix running the web UI with class defined hosts) (https://github.com/locustio/locust/pull/1956)
+* Throw exception when calling response.success()/.failure() if with-block has not been entered (https://github.com/locustio/locust/pull/1955)
+* Stop declaring "fake" class level variables in Environment, User and StatsEntry (https://github.com/locustio/locust/pull/1948)
+
+2.5.0
+=====
+
+* Change request event 'url' parameter to contain full URL (technically a breaking change, but very few users will have had time to start using this) (https://github.com/locustio/locust/issues/1927)
+* Suppress warnings for patch version mismatch between master and worker (https://github.com/locustio/locust/issues/1926)
+
+2.4.3
+=====
+
+* Fix crash on windows (https://github.com/locustio/locust/issues/1924)
+
+2.4.2
+=====
+
+* Add --expect-workers-max-wait parameter (https://github.com/locustio/locust/pull/1922)
+* Track worker memory usage (https://github.com/locustio/locust/pull/1917)
+* Other small fixes
+
+2.4.1
+=====
+
+* Fix stat printing when using shapes (https://github.com/locustio/locust/pull/1907)
+
+2.4.0
+=====
+
+* Add start_time and url parameters to request event. (https://github.com/locustio/locust/pull/1900)
+* Support (and test) Python 3.10 (https://github.com/locustio/locust/pull/1901)
+* Make User.run/TaskSet.run final and raise an exception if someone marks it as a task (https://github.com/locustio/locust/pull/1895)
+* Release docker image for arm64. (https://github.com/locustio/locust/pull/1889)
+* Automated change log generation is broken. Will fix this later, but until then you can look here: https://github.com/locustio/locust/compare/2.2.3...2.4.0
+
+2.3.0
+=====
+
+* Accidentally increased version to 2.4 directly so there is no 2.3...
+
+2.2.3
+=====
+
+* Fix issue with custom arguments in config file (when not running headless) (https://github.com/locustio/locust/pull/1888)
+* Automated change log generation is broken. Will fix this later, but until then you can look here: https://github.com/locustio/locust/compare/2.2.2...2.2.3
+
+2.2.2
+=====
+
+* Fix version in Docker builds
+* Automated change log generation is broken. Will fix this later, but until then you can look here: https://github.com/locustio/locust/compare/2.2.1...2.2.2
+
+2.2.1
+=====
+
+* Automated change log generation is broken. Will fix this later, but until then you can look here: https://github.com/locustio/locust/compare/2.2.0...2.2.1
+
+2.2.0
+=====
+
+* Display locustfile and tasks ratio information on index.html
+* Add --autostart and --autoquit parameters (https://github.com/locustio/locust/pull/1864)
+* Add constant\_throughput wait time \(the inverse of constant\_pacing\)
+* Alternative way to rename requests (particularly useful when using an SDK that wraps `requests`) (https://github.com/locustio/locust/pull/1858)
+* Add --equal-weights flag (https://github.com/locustio/locust/pull/1842)
+* HttpUser: Unpack known exceptions
+* Various charting fixes
+* Add FastHttpUser directly under locust package
+* Auto-generate Locust's version number using setuptools\_scm and git tags 
+* Show custom arguments in web ui and forward them to worker (https://github.com/locustio/locust/pull/1841)
+
+2.1.0
+=====
+
+* Fix docker builds (2.0 never got pushed to Docker Hub)
+* Bump dependency on pyzmq to fix out of memory issue on Windows
+* Use 1 as default for user count and spawn rate in web UI start form
+* Various documentation updates
+
+2.0.0
+=====
+
+User ramp up/down and User type selection is now controlled by the master instead of autonomously by the workers 
+----------------------------------------------------------------------------------------------------------------
+This has allowed us to fix some issues with incorrect/skewed User type selection and undesired stepping of ramp up. The issues were especially visible when running many workers and/or using LoadShape:s. This change also allows redistribution of Users if a worker disconnects during a test. This is a major change internally in Locust so please let us know if you encounter any problems (particularly regarding ramp up pace, User distribution, CPU usage on master, etc)
+
+Other potentially breaking API changes
+--------------------------------------
+* Change the default User weight to 1 instead of 10 (the old default made no sense)
+* Fire test_start and test_stop events on workers too (previously they were only fired on master/standalone instances)
+* Workers now send their version number to master. Master will warn about version differences, and pre 2.0-versions will not be allowed to connect at all (because they would not work anyway)
+* Update Flask dependency to 2.0
+
+Significant merged PR:s (and prerelease version they were introduced in)
+------------------------------------------------------------------------
+* Allow workers to bypass version check by sending -1 as version (2.0.0) https://github.com/locustio/locust/pull/1830
+* Improve logging messages and clean up code after dispatch refactoring (2.0.0b4) https://github.com/locustio/locust/pull/1826
+* Remove `user_classes_count` from heartbeat payload (2.0.0b4) https://github.com/locustio/locust/pull/1825
+* Add option to set concurrency of FastHttpUser/Session (2.0.0b3) https://github.com/locustio/locust/pull/1812/
+* Fire test_start and test_stop events on worker nodes (2.0.0b3) https://github.com/locustio/locust/pull/1777/
+* Auto shrink request stats table to fit terminal (2.0.0b2) https://github.com/locustio/locust/pull/1811
+* Refactoring of the dispatch logic to improve performance (2.0.0b2) https://github.com/locustio/locust/pull/1809 
+* Check version of workers when they connect. Warn if there is a mismatch, refuse 1.x workers to connect (2.0.0b1) https://github.com/locustio/locust/pull/1805 
+* Change the default User weight to 1 instead of 10 (2.0.0b1) https://github.com/locustio/locust/pull/1803
+* Upgrade to Flask 2 (2.0.0b1) https://github.com/locustio/locust/pull/1764
+* Move User selection responsibility from worker to master in order to fix unbalanced distribution of users and uneven ramp-up (2.0.0b0) https://github.com/locustio/locust/pull/1621
+
+Some of these are not really that significant and may be removed from this list at a later time, once 2.0 has stabilised.
+
+1.6.0
+=====
+
+* Allow cross process communication using custom messages https://github.com/locustio/locust/pull/1782
+* Fix: status "stopped" instead of "spawning", tick\(\) method of LoadShape called only once https://github.com/locustio/locust/pull/1769
+
+1.5.3
+=====
+
+* Fix an issue with custom Users calling request_success/_failure.fire() not being added to statistics https://github.com/locustio/locust/pull/1761
+
+1.5.2
+=====
+
+* Pin version of flask to 1.1.2, fixing https://github.com/locustio/locust/issues/1759
+* Fix issue with GRPC compatibility and add GRPC example to documentation https://github.com/locustio/locust/pull/1755
+* Use time.perf_counter() to calculate elapsed times everywhere, should only matter for Windows https://github.com/locustio/locust/pull/1758
+
+1.5.1
+=====
+
+* Fixed an issue with 1.5.0 where an extra parameter (start_time) was passed to request event https://github.com/locustio/locust/pull/1754
+
+1.5.0
+=====
+
+* Unify request_success/request_failure into a single event called request (the old ones are deprecated but still work) https://github.com/locustio/locust/issues/1724
+* Add the response object and context as parameters to the request event. context is used to forward information to the request event handler (can be used for things like username, tags etc)
 
 1.4.4
 =====
@@ -151,7 +988,7 @@ instance, as one would expect. For tasks defined under a :py:class:`TaskSet <loc
 would refer to the ``TaskSet`` instance.
 
 The ``task_set`` attribute on the ``User`` class (previously ``Locust`` class) has been removed. To declare a 
-``User`` class with a single ``TaskSet`` one would now use the the :py:attr:`tasks <locust.User.tasks>` 
+``User`` class with a single ``TaskSet`` one would now use the :py:attr:`tasks <locust.User.tasks>`
 attribute instead:
 
 .. code-block:: python
@@ -222,7 +1059,7 @@ Other breaking changes
 * A ``User count`` column has been added to the history stats CSV file. The column order and column names has been changed.
 * The official docker image no longer uses a shell script with a bunch of special environment variables to configure how 
   how locust is started. Instead, the ``locust`` command is now set as ``ENTRYPOINT`` of the docker image. See
-  :ref:`running-locust-docker` for more info.
+  :ref:`running-in-docker` for more info.
 * Command line option ``--csv-base-name`` has been removed, since it was just an alias for ``--csv``.
 * The way Locust handles logging has been changed. We no longer wrap stdout (and stderr) to automatically make print 
   statements go into the log. ``print()`` statements now only goes to stdout. To add custom entries to the log, one 
@@ -239,7 +1076,7 @@ Other breaking changes
 Web UI improvements
 -------------------
 
-* It's now possible to protect the Web UI with Basic Auth using hte ``--web-auth`` command line argument.
+* It's now possible to protect the Web UI with Basic Auth using the ``--web-auth`` command line argument.
 * The Web UI can now be served over HTTPS by specifying a TLS certificate and key with the ``--tls-cert`` 
   and ``--tls-key`` command line arguments.
 * If the number of users and hatch rate are specified on command line, it's now used to pre-populate the input fields in 
@@ -294,7 +1131,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 0.13.2
 ======
 
-* Fixed bug that broke the Web UI's repsonse time graph
+* Fixed bug that broke the Web UI's response time graph
 
 0.13.1
 ======
@@ -371,7 +1208,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 * Added sequential task support - https://github.com/locustio/locust/pull/827
 * Added support for user-defined wait_function - https://github.com/locustio/locust/pull/785
 * By default, Locust no longer resets the statistics when the hatching is complete.
-  Therefore :code:`--no-reset-stats` has been deprected (since it's now the default behaviour),
+  Therefore :code:`--no-reset-stats` has been deprecated (since it's now the default behavior),
   and instead a new :code:`--reset-stats` option has been added.
 * Dropped support for Python 3.3
 * Updated documentation
@@ -388,7 +1225,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 
 * Python 3 support
 * Dropped support for Python 2.6
-* Added :code:`--no-reset-stats` option for controling if the statistics should be reset once
+* Added :code:`--no-reset-stats` option for controlling if the statistics should be reset once
   the hatching is complete
 * Added charts to the web UI for requests per second, average response time, and number of
   simulated users.
@@ -420,7 +1257,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 * Fixed bug where POST requests (and other methods as well) got incorrectly reported as
   GET requests, if the request resulted in a redirect.
 * Added ability to download exceptions in CSV format. Download links has also been moved
-  to it's own tab in the web UI.
+  to its own tab in the web UI.
 
 
 0.7.2
@@ -436,7 +1273,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 * Fixed bug which caused the download time of the request body not to be included in the
   reported response time.
 * Fixed bug that occurred on some linux dists that were tampering with the python-requests
-  system package (removing dependencies which requests is bundling). This bug only occured
+  system package (removing dependencies which requests is bundling). This bug only occurred
   when installing Locust in the python system packages, and not when using virtualenv.
 * Various minor fixes and improvements.
 
@@ -444,7 +1281,7 @@ Identical to previous version, but now built & deployed to Pypi using Travis.
 0.7.1
 =====
 
-* Exceptions that occurs within TaskSets are now catched by default.
+* Exceptions that occurs within TaskSets are now caught by default.
 * Fixed bug which caused Min response time to always be 0 after all locusts had been hatched
   and the statistics had been reset.
 * Minor UI improvements in the web interface.
@@ -460,7 +1297,7 @@ HTTP client functionality moved to HttpLocust
 ---------------------------------------------
 
 Previously, the Locust class instantiated a :py:class:`HttpSession <locust.clients.HttpSession>`
-under the client attribute that was used to make HTTP requests. This funcionality has
+under the client attribute that was used to make HTTP requests. This functionality has
 now been moved into the :py:class:`HttpLocust <locust.core.HttpLocust>` class, in an
 effort to make it more obvious how one can use Locust to
 :doc:`load test non-HTTP systems <testing-other-systems>`.
@@ -473,7 +1310,7 @@ msgpack for serializing master/slave data
 -----------------------------------------
 
 Locust now uses `msgpack <http://msgpack.org/>`_ for serializing data that is sent between
-a master node and it's slaves. This adresses a possible attack that can be used to execute
+a master node and its slaves. This addresses a possible attack that can be used to execute
 code remote, if one has access to the internal locust ports that are used for master-slave
 communication. The reason for this exploit was due to the fact that pickle was used.
 
@@ -592,7 +1429,7 @@ Other changes
     Anyone who is currently using existing locust scripts and want to upgrade to 0.6
     should read through these changes.
 
-:py:class:`SubLocust <locust.core.SubLocust>` replaced by :py:class:`TaskSet <locust.core.TaskSet>` and :py:class:`Locust <locust.core.Locust>` class behaviour changed
+:py:class:`SubLocust <locust.core.SubLocust>` replaced by :py:class:`TaskSet <locust.core.TaskSet>` and :py:class:`Locust <locust.core.Locust>` class behavior changed
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 :py:class:`Locust <locust.core.Locust>` classes does no longer control task scheduling and execution.
@@ -670,7 +1507,7 @@ Locust now uses Requests
 Locust's own HttpBrowser class (which was typically accessed through *self.client* from within a locust class)
 has been replaced by a thin wrapper around the requests library (http://python-requests.org). This comes with
 a number of advantages. Users can  now take advantage of a well documented, well written, fully fledged
-library for making HTTP requests. However, it also comes with some small API changes wich will require users
+library for making HTTP requests. However, it also comes with some small API changes which will require users
 to update their existing load testing scripts.
 
 Gzip encoding turned on by default
@@ -777,7 +1614,7 @@ Smaller API Changes
 API changes
 -----------
 
-* Web inteface is now turned on by default. The **--web** command line option has been replaced by --no-web.
+* Web interface is now turned on by default. The **--web** command line option has been replaced by --no-web.
 * :func:`locust.events.request_success`  and :func:`locust.events.request_failure` now gets the HTTP method as the first argument.
 
 Improvements and bug fixes

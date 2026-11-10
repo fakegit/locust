@@ -17,11 +17,11 @@ Usage as a decorator:
        # If an Exception is raised, it'll be reported as a failure
 """
 
-import random
-from contextlib import contextmanager, ContextDecorator
-from time import time, sleep
+from locust import User, constant, events, task
 
-from locust import User, task, constant, events
+import random
+from contextlib import contextmanager
+from time import sleep, time
 
 
 @contextmanager
@@ -30,7 +30,7 @@ def _manual_report(name):
     try:
         yield
     except Exception as e:
-        events.request_failure.fire(
+        events.request.fire(
             request_type="manual",
             name=name,
             response_time=(time() - start_time) * 1000,
@@ -39,11 +39,12 @@ def _manual_report(name):
         )
         raise
     else:
-        events.request_success.fire(
+        events.request.fire(
             request_type="manual",
             name=name,
             response_time=(time() - start_time) * 1000,
             response_length=0,
+            exception=None,
         )
 
 

@@ -7,14 +7,81 @@ User class
 ============
 
 .. autoclass:: locust.User
-    :members: wait_time, tasks, weight, abstract, on_start, on_stop, wait
+    :members: wait_time, tasks, weight, fixed_count, abstract, on_start, on_stop, wait, context, environment
 
 HttpUser class
 ================
 
 .. autoclass:: locust.HttpUser
-    :members: wait_time, tasks, client, abstract
+    :members: wait_time, tasks, client, abstract, rest, rest_
 
+HttpSession class
+=================
+
+.. autoclass:: locust.clients.HttpSession
+    :members: __init__, request, get, post, delete, put, head, options, patch
+
+FastHttpUser class
+==================
+
+.. autoclass:: locust.contrib.fasthttp.FastHttpUser
+    :members: wait_time, tasks, client, abstract, rest
+    :noindex:
+
+MqttUser class
+==================
+.. autoclass:: locust.contrib.mqtt.MqttUser
+    :members: __init__, host, port, transport, ws_path, tls_context, client_cls, client_id, username, password, protocol 
+
+.. _socketio:
+
+SocketIOUser class
+==================
+
+.. autoclass:: locust.contrib.socketio.SocketIOUser
+    :members: connect, call, emit, send, on_message, client, options
+    :noindex:
+
+FastHttpSession class
+=====================
+
+.. autoclass:: locust.contrib.fasthttp.FastHttpSession
+    :members: __init__, request, get, post, delete, put, head, options, patch, iter_lines, rename_request
+
+PostgresUser class
+==================
+
+.. autoclass:: locust.contrib.postgres.PostgresUser
+    :members: wait_time, tasks, client, abstract
+    :noindex:
+
+MongoDBUser class
+=================
+
+.. autoclass:: locust.contrib.mongodb.MongoDBUser
+    :members: wait_time, tasks, client, abstract
+    :noindex:
+
+MilvusUser class
+================
+
+.. autoclass:: locust.contrib.milvus.MilvusUser
+    :members: wait_time, tasks, client, abstract
+    :noindex:
+
+QdrantUser class
+================
+
+.. autoclass:: locust.contrib.qdrant.QdrantUser
+    :members: wait_time, tasks, client, abstract
+    :noindex:
+
+DNSUser class
+==========
+
+.. autoclass:: locust.contrib.dns.DNSUser
+    :members: client
+    :noindex:
 
 TaskSet class
 =============
@@ -45,22 +112,16 @@ Built in wait_time functions
 ============================
 
 .. automodule:: locust.wait_time
-    :members: between, constant, constant_pacing
-
-HttpSession class
-=================
-
-.. autoclass:: locust.clients.HttpSession
-    :members: __init__, request, get, post, delete, put, head, options, patch
+    :members: between, constant, constant_pacing, constant_throughput, poisson
 
 Response class
 ==============
 
-This class actually resides in the `python-requests <http://python-requests.org>`_ library, 
+This class actually resides in the `requests <https://requests.readthedocs.io/>`_ library, 
 since that's what Locust is using to make HTTP requests, but it's included in the API docs 
 for locust since it's so central when writing locust load tests. You can also look at the 
 :py:class:`Response <requests.Response>` class at the 
-`requests documentation <http://python-requests.org>`_.
+`requests documentation <https://requests.readthedocs.io/>`_.
 
 .. autoclass:: requests.Response
     :inherited-members:
@@ -108,18 +169,18 @@ of locust scripts (since the Environment instance hasn't been created when the l
     :members:
 
 
+.. note::
+
+    It's highly recommended that you add a wildcard keyword argument in your event listeners
+    to prevent your code from breaking if new arguments are added in a future version.
+
 EventHook class
 ---------------
 
 The event hooks are instances of the **locust.events.EventHook** class:
 
 .. autoclass:: locust.event.EventHook
-
-.. note::
-
-    It's highly recommended that you add a wildcard keyword argument in your event listeners
-    to prevent your code from breaking if new arguments are added in a future version.
-
+    :members:
 
 Runner classes
 =====================
@@ -130,12 +191,32 @@ Runner classes
 .. autoclass:: locust.runners.LocalRunner
 
 .. autoclass:: locust.runners.MasterRunner
+    :members: register_message, send_message
 
 .. autoclass:: locust.runners.WorkerRunner
-
+    :members: register_message, send_message, client_id, worker_index
 
 Web UI class
 ============
 
 .. autoclass:: locust.web.WebUI
     :members:
+
+Other
+=====
+
+.. autoclass:: locust.shape.LoadTestShape
+    :members:
+
+.. autoclass:: locust.stats.RequestStats
+    :members: get
+
+.. autoclass:: locust.stats.StatsEntry
+
+.. autofunction:: locust.debug.run_single_user
+
+CsvRequestLogger class
+======================
+
+.. autoclass:: locust.contrib.csv_request_logger.CsvRequestLogger
+    :members: register, close

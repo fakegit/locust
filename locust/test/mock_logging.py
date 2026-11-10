@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import logging
+from types import TracebackType
+
+LogMessage = list[str | dict[str, TracebackType]]
 
 
 class MockedLoggingHandler(logging.Handler):
-    debug = []
-    warning = []
-    info = []
-    error = []
-    critical = []
+    debug: list[LogMessage] = []
+    warning: list[LogMessage] = []
+    info: list[LogMessage] = []
+    error: list[LogMessage] = []
+    critical: list[LogMessage] = []
 
     def emit(self, record):
         if record.exc_info:

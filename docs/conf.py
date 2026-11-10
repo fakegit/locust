@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 #
 # This file is execfile()d with the current directory set to its containing dir.
 #
@@ -8,44 +7,57 @@
 # All configuration values have a default value; values that are commented out
 # serve to show the default value.
 
+from locust.argument_parser import get_parser
+
 import os
 import subprocess
+import sys
 
-from locust.argument_parser import get_empty_argument_parser, setup_parser_arguments
+# Add local extensions directory to path
+sys.path.insert(0, os.path.join(os.path.abspath(os.path.dirname(__file__)), "_ext"))
+
+# Add fixes for RTD deprecation
+# https://about.readthedocs.com/blog/2024/07/addons-by-default/
+
+# Define the canonical URL if you are using a custom domain on Read the Docs
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+
+# Tell Jinja2 templates the build is running on Read the Docs
+if os.environ.get("READTHEDOCS", "") == "True":
+    if "html_context" not in globals():
+        html_context = {}
+    html_context["READTHEDOCS"] = True
 
 
 # Run command `locust --help` and store output in cli-help-output.txt which is included in the docs
 def save_locust_help_output():
     cli_help_output_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), "cli-help-output.txt")
-    print("Running `locust --help` command and storing output in %s" % cli_help_output_file)
-    help_output = subprocess.check_output(["locust", "--help"]).decode("utf-8")
+    print(f"Running `locust --help` command and storing output in {cli_help_output_file}")
+    help_output = subprocess.check_output(["locust", "--help"], text=True)
     with open(cli_help_output_file, "w") as f:
         f.write(help_output)
 
 
 save_locust_help_output()
 
+
 # Generate RST table with help/descriptions for all available environment variables
 
 
 def save_locust_env_variables():
     env_options_output_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config-options.rst")
-    print("Generating RST table for Locust environment variables and storing in %s" % env_options_output_file)
-    parser = get_empty_argument_parser()
-    setup_parser_arguments(parser)
-    table_data = []
-    for action in parser._actions:
-        if action.env_var:
-            table_data.append(
-                (
-                    ", ".join(["``%s``" % c for c in action.option_strings]),
-                    "``%s``" % action.env_var,
-                    ", ".join(
-                        ["``%s``" % c for c in parser.get_possible_config_keys(action) if not c.startswith("--")]
-                    ),
-                    action.help,
-                )
-            )
+    print(f"Generating RST table for Locust environment variables and storing in {env_options_output_file}")
+    parser = get_parser()
+    table_data = [
+        (
+            ", ".join([f"``{c}``" for c in action.option_strings]),
+            f"``{action.env_var}``",
+            ", ".join([f"``{c}``" for c in parser.get_possible_config_keys(action) if not c.startswith("--")]),
+            action.help.replace("\n", " "),
+        )
+        for action in parser._actions
+        if action.env_var and action.help != "==SUPPRESS=="
+    ]
     colsizes = [max(len(r[i]) for r in table_data) for i in range(len(table_data[0]))]
     formatter = " ".join("{:<%d}" % c for c in colsizes)
     rows = [formatter.format(*row) for row in table_data]
@@ -79,7 +91,23 @@ from locust import __version__
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.intersphinx", "sphinx_search.extension"]
+extensions = [
+    "sphinx-prompt",
+    "sphinx_substitution_extensions",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.viewcode",
+    "sphinx_search.extension",
+    "sphinx_rtd_theme",
+    "sphinxcontrib.googleanalytics",
+    "sphinx.ext.extlinks",
+    "llms_txt",
+]
+
+extlinks = {
+    "gh": ("https://github.com/locustio/locust/blob/master/%s", "%s"),
+}
+
 
 # autoclass options
 # autoclass_content = "both"
@@ -87,21 +115,23 @@ extensions = ["sphinx.ext.autodoc", "sphinx.ext.intersphinx", "sphinx_search.ext
 autodoc_typehints = "none"  # I would have liked to use 'description' but unfortunately it too is very verbose
 
 # Add any paths that contain templates here, relative to this directory.
-# templates_path = ["_templates"]
+templates_path = ["_templates"]
 
 # The suffix of source filenames.
-source_suffix = ".rst"
+source_suffix = {".rst": "restructuredtext"}
 
 # The master toctree document.
 master_doc = "index"
 
 # General substitutions.
 project = "Locust"
-# copyright = ''
+copyright = "2009-2026, Carl Byström, Jonatan Heyman, Lars Holmberg"
 
 # Intersphinx config
 intersphinx_mapping = {
     "requests": ("https://requests.readthedocs.io/en/latest/", None),
+    "socketio": ("https://python-socketio.readthedocs.io/en/stable/", None),
+    "dnspython": ("https://dnspython.readthedocs.io/en/stable/", None),
 }
 
 
@@ -138,28 +168,17 @@ exclude_dirnames = []
 
 html_show_sourcelink = False
 html_file_suffix = ".html"
-
-
-# on_rtd is whether we are on readthedocs.org, this line of code grabbed from docs.readthedocs.org
-on_rtd = os.environ.get("READTHEDOCS", None) == "True"
-
-if not on_rtd:  # only import and set the theme if we're building docs locally
-    import sphinx_rtd_theme
-
-    html_theme = "sphinx_rtd_theme"
-    html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
-
+html_theme = "sphinx_rtd_theme"
 
 # Custom CSS overrides
 html_static_path = ["_static"]
-html_context = {
-    "css_files": ["_static/theme-overrides.css", "_static/css/rtd_sphinx_search.min.css"],
-}
+html_css_files = ["theme-overrides.css", "css/rtd_sphinx_search.min.css"]
 
+# Google Analytics ID
+googleanalytics_id = "G-MCG99XYF9M"
+googleanalytics_enabled = True
 
 # HTML theme
-# html_theme = "haiku"
-
 # html_theme = "default"
 # html_theme_options = {
 #    "rightsidebar": "true",
@@ -169,3 +188,7 @@ html_context = {
 
 # The name of the Pygments (syntax highlighting) style to use.
 # pygments_style = 'trac'
+
+rst_prolog = f"""
+.. |version| replace:: {__version__}
+"""

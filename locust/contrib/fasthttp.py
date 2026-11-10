@@ -1,24 +1,61 @@
-import re
-import socket
+from __future__ import annotations
+
+from locust.exception import CatchResponseError, LocustError, ResponseError, StopTest
+from locust.user import User
+from locust.user.users import RestMixin
+from locust.util.deprecation import DeprecatedFastHttpLocustClass as FastHttpLocust  # noqa: F401
+
 import json
 import json as unshadowed_json  # some methods take a named parameter called json
+import re
+import socket
+import time
+import zlib
 from base64 import b64encode
-from urllib.parse import urlparse, urlunparse
-from ssl import SSLError
-from timeit import default_timer
-
+from codecs import getincrementaldecoder
+from contextlib import contextmanager
 from http.cookiejar import CookieJar
+from ssl import SSLError
+from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlparse, urlunparse
 
 import gevent
+from charset_normalizer import detect
 from gevent.timeout import Timeout
 from geventhttpclient._parser import HTTPParseError
-from geventhttpclient.useragent import UserAgent, CompatRequest, CompatResponse, ConnectionError
-from geventhttpclient.response import HTTPConnectionClosed
+from geventhttpclient.client import HTTPClientPool
+from geventhttpclient.header import Headers
+from geventhttpclient.response import HTTPConnectionClosed, HTTPSocketPoolResponse
+from geventhttpclient.useragent import CompatRequest, CompatResponse, ConnectionError, UserAgent
 
-from locust.user import User
-from locust.exception import LocustError, CatchResponseError, ResponseError
-from locust.env import Environment
-from locust.util.deprecation import DeprecatedFastHttpLocustClass as FastHttpLocust
+# borrow requests's content-type header parsing
+from requests.utils import get_encoding_from_headers
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+    from typing import Any, TypedDict, Unpack
+
+    class PostKwargs(TypedDict, total=False):
+        name: str | None
+        catch_response: bool
+        stream: bool
+        headers: dict | None
+        auth: tuple[str | bytes, str | bytes] | None
+        allow_redirects: bool
+        context: dict
+        params: dict | None
+        files: dict | None
+
+    class PutKwargs(PostKwargs, total=False):
+        json: Any
+
+    class PatchKwargs(PostKwargs, total=False):
+        json: Any
+
+    class RESTKwargs(PostKwargs, total=False):
+        data: str | dict | None
+        json: Any
+
 
 # Monkey patch geventhttpclient.useragent.CompatRequest so that Cookiejar works with Python >= 3.3
 # More info: https://github.com/requests/requests/pull/871
@@ -30,7 +67,7 @@ CompatRequest.unverifiable = False
 CompatRequest.type = "https"
 
 # Regexp for checking if an absolute URL was specified
-absolute_http_url_regexp = re.compile(r"^https?://", re.I)
+absolute_http_url_regexp = re.compile(r"^https?://", re.IGNORECASE)
 
 # List of exceptions that can be raised by geventhttpclient when sending an HTTP request,
 # and that should result in a Locust failure
@@ -42,6 +79,8 @@ FAILURE_EXCEPTIONS = (
     SSLError,
     Timeout,
     HTTPConnectionClosed,
+    HTTPParseError,
+    zlib.error,
 )
 
 
@@ -55,52 +94,85 @@ def _construct_basic_auth_str(username, password):
 
 
 def insecure_ssl_context_factory():
-    context = gevent.ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = gevent.ssl.CERT_NONE
-    return context
+    return gevent.ssl._create_unverified_context()
 
 
 class FastHttpSession:
     auth_header = None
 
-    def __init__(self, environment: Environment, base_url: str, insecure=True, **kwargs):
-        self.environment = environment
+    def __init__(
+        self,
+        base_url: str | None,
+        request_event,
+        user: User | None,
+        insecure=True,
+        client_pool: HTTPClientPool | None = None,
+        ssl_context_factory: Callable | None = None,
+        **kwargs,
+    ) -> None:
         self.base_url = base_url
+        self.request_event = request_event
         self.cookiejar = CookieJar()
-        if insecure:
-            ssl_context_factory = insecure_ssl_context_factory
-        else:
-            ssl_context_factory = gevent.ssl.create_default_context
+        self.user = user
+
+        # Requests can be grouped under a common name by setting request_name, or by using the rename_request context manager
+        # This is an alternative to passing in the "name" parameter to the requests function
+        self.request_name: str | None = None
+
+        if not ssl_context_factory:
+            if insecure:
+                ssl_context_factory = insecure_ssl_context_factory
+            else:
+                ssl_context_factory = gevent.ssl.create_default_context
         self.client = LocustUserAgent(
             cookiejar=self.cookiejar,
             ssl_context_factory=ssl_context_factory,
             insecure=insecure,
+            client_pool=client_pool,
             **kwargs,
         )
 
         # Check for basic authentication
-        parsed_url = urlparse(self.base_url)
-        if parsed_url.username and parsed_url.password:
-            netloc = parsed_url.hostname
-            if parsed_url.port:
-                netloc += ":%d" % parsed_url.port
+        if self.base_url:
+            parsed_url = urlparse(self.base_url)
+            if parsed_url.username and parsed_url.password:
+                # remove username and password from the base_url (keeping e.g. the brackets of an IPv6 host)
+                netloc = parsed_url.netloc.rpartition("@")[2]
+                self.base_url = str(
+                    urlunparse(
+                        (
+                            parsed_url.scheme,
+                            netloc,
+                            parsed_url.path,
+                            parsed_url.params,
+                            parsed_url.query,
+                            parsed_url.fragment,
+                        )
+                    )
+                )
+                # store authentication header (we construct this by using _basic_auth_str() function from requests.auth)
+                # (credentials in a URL are percent-encoded)
+                self.auth_header = _construct_basic_auth_str(unquote(parsed_url.username), unquote(parsed_url.password))
 
-            # remove username and password from the base_url
-            self.base_url = urlunparse(
-                (parsed_url.scheme, netloc, parsed_url.path, parsed_url.params, parsed_url.query, parsed_url.fragment)
-            )
-            # store authentication header (we construct this by using _basic_auth_str() function from requests.auth)
-            self.auth_header = _construct_basic_auth_str(parsed_url.username, parsed_url.password)
-
-    def _build_url(self, path):
-        """ prepend url with hostname unless it's already an absolute URL """
+    def _build_url(self, path: str) -> str:
+        """prepend url with hostname unless it's already an absolute URL"""
         if absolute_http_url_regexp.match(path):
             return path
         else:
-            return "%s%s" % (self.base_url, path)
+            return f"{self.base_url}{path}"
 
-    def _send_request_safe_mode(self, method, url, **kwargs):
+    @contextmanager
+    def rename_request(self, name: str) -> Generator[None]:
+        """Group requests using the "with" keyword"""
+
+        previous_name = self.request_name
+        self.request_name = name
+        try:
+            yield
+        finally:
+            self.request_name = previous_name
+
+    def _send_request_safe_mode(self, method: str, url: str, **kwargs) -> FastResponse:
         """
         Send an HTTP request, and catch any exception that might occur due to either
         connection problems, or invalid HTTP status codes
@@ -109,32 +181,41 @@ class FastHttpSession:
             return self.client.urlopen(url, method=method, **kwargs)
         except FAILURE_EXCEPTIONS as e:
             if hasattr(e, "response"):
-                r = e.response
+                # regular FastResponse object
+                resp = e.response
+                resp.error = e
             else:
-                r = ErrorResponse()
-            r.error = e
-            return r
+                req = self.client._make_request(
+                    url,
+                    method=method,
+                    headers=kwargs.get("headers"),
+                    payload=kwargs.get("payload"),
+                    params=kwargs.get("params"),
+                )
+                # fake FastResponse object
+                resp = ErrorResponse(req, e)
+            return resp
 
     def request(
         self,
         method: str,
-        path: str,
-        name: str = None,
-        data: str = None,
+        url: str,
+        name: str | None = None,
+        data: str | dict | None = None,
         catch_response: bool = False,
         stream: bool = False,
-        headers: dict = None,
-        auth=None,
-        json: dict = None,
-        allow_redirects=True,
+        headers: dict | None = None,
+        auth: tuple[str | bytes, str | bytes] | None = None,
+        json: Any = None,
+        allow_redirects: bool = True,
+        context: dict = {},
         **kwargs,
-    ):
+    ) -> ResponseContextManager:  # technically it can also return FastResponse
         """
-        Send and HTTP request
-        Returns :py:class:`locust.contrib.fasthttp.FastResponse` object.
+        Send an HTTP request
 
         :param method: method for the new :class:`Request` object.
-        :param path: Path that will be concatenated with the base host URL that has been specified.
+        :param url: path that will be concatenated with the base host URL that has been specified.
             Can also be a full URL, in which case the full URL will be requested, and the base host
             is ignored.
         :param name: (optional) An argument that can be specified to use as label in Locust's
@@ -144,9 +225,9 @@ class FastHttpSession:
             return a context manager to work as argument to a with statement. This will allow the
             request to be marked as a fail based on the content of the response, even if the response
             code is ok (2xx). The opposite also works, one can use catch_response to catch a request
-            and then mark it as successful even if the response code was not (i.e 500 or 404).
+            and then mark it as successful even if the response code was not (i.e. 500 or 404).
         :param data: (optional) String/bytes to send in the body of the request.
-        :param json: (optional) Dictionary to send in the body of the request.
+        :param json: (optional) Json to send in the body of the request.
             Automatically sets Content-Type and Accept headers to "application/json".
             Only used if data is not set.
         :param headers: (optional) Dictionary of HTTP Headers to send with the request.
@@ -155,24 +236,29 @@ class FastHttpSession:
             and can instead be consumed by accessing the stream attribute on the Response object.
             Another side effect of setting stream to True is that the time for downloading the response
             content will not be accounted for in the request time that is reported by Locust.
+        :param allow_redirects: (optional) Set to True by default.
+        :return: A :py:class:`FastResponse <locust.contrib.fasthttp.FastResponse>` object if catch_response is False, and
+            :py:class:`ResponseContextManager <locust.contrib.fasthttp.ResponseContextManager>` if True.
         """
+        # if group name has been set and no name parameter has been passed in; set the name parameter to group_name
+        if self.request_name and not name:
+            name = self.request_name
+
         # prepend url with hostname unless it's already an absolute URL
-        url = self._build_url(path)
+        built_url = self._build_url(url)
 
-        # store meta data that is used when reporting the request to locust's statistics
-        request_meta = {}
-        # set up pre_request hook for attaching meta data to the request object
-        request_meta["method"] = method
-        request_meta["start_time"] = default_timer()
-        request_meta["name"] = name or path
+        start_time = time.time()  # seconds since epoch
 
-        headers = headers or {}
+        if self.user:
+            context = {**self.user.context(), **context}
+
+        headers = dict(headers) if headers else {}
         if auth:
             headers["Authorization"] = _construct_basic_auth_str(auth[0], auth[1])
         elif self.auth_header:
             headers["Authorization"] = self.auth_header
         if "Accept-Encoding" not in headers and "accept-encoding" not in headers:
-            headers["Accept-Encoding"] = "gzip, deflate"
+            headers["Accept-Encoding"] = "gzip, deflate, br"
 
         if not data and json is not None:
             data = unshadowed_json.dumps(json)
@@ -182,106 +268,116 @@ class FastHttpSession:
                 headers["Accept"] = "application/json"
 
         if not allow_redirects:
-            old_redirect_response_codes = self.client.redirect_resonse_codes
-            self.client.redirect_resonse_codes = []
+            old_redirect_response_codes = self.client.redirect_response_codes
+            self.client.redirect_response_codes = frozenset()  # type: ignore
 
+        start_perf_counter = time.perf_counter()
         # send request, and catch any exceptions
-        response = self._send_request_safe_mode(method, url, payload=data, headers=headers, **kwargs)
+        response = self._send_request_safe_mode(method, built_url, payload=data, headers=headers, **kwargs)
+        request_meta = {
+            "request_type": method,
+            "name": name or url,
+            "context": context,
+            "response": response,
+            "exception": None,
+            "start_time": start_time,
+            "url": built_url,  # this is a small deviation from HttpSession, which gets the final (possibly redirected) URL
+        }
 
         if not allow_redirects:
-            self.client.redirect_resonse_codes = old_redirect_response_codes
+            self.client.redirect_response_codes = old_redirect_response_codes  # type: ignore
+
+        request_meta["response_length"] = 0  # default value, if length cannot be determined
 
         # get the length of the content, but if the argument stream is set to True, we take
         # the size from the content-length header, in order to not trigger fetching of the body
         if stream:
-            request_meta["content_size"] = int(response.headers.get("content-length") or 0)
+            if response.headers and "content-length" in response.headers:
+                request_meta["response_length"] = int(response.headers["content-length"])  # type: ignore
         else:
             try:
-                request_meta["content_size"] = len(response.content or "")
-            except HTTPParseError as e:
-                request_meta["response_time"] = int((default_timer() - request_meta["start_time"]) * 1000)
-                self.environment.events.request_failure.fire(
-                    request_type=request_meta["method"],
-                    name=request_meta["name"],
-                    response_time=request_meta["response_time"],
-                    response_length=0,
-                    exception=e,
-                )
-                return response
+                request_meta["response_length"] = len(response.content) if response.content else 0
+            except FAILURE_EXCEPTIONS as e:
+                request_meta["response_time"] = (time.perf_counter() - start_perf_counter) * 1000
+                request_meta["exception"] = e  # type: ignore
+                if catch_response:
+                    return ResponseContextManager(response, self.request_event, request_meta, catch_response)
+                else:
+                    self.request_event.fire(**request_meta)
+                    return response  # type: ignore[return-value]
 
         # Record the consumed time
         # Note: This is intentionally placed after we record the content_size above, since
         # we'll then trigger fetching of the body (unless stream=True)
-        request_meta["response_time"] = int((default_timer() - request_meta["start_time"]) * 1000)
+        request_meta["response_time"] = (time.perf_counter() - start_perf_counter) * 1000
+
+        try:
+            response.raise_for_status()
+        except FAILURE_EXCEPTIONS as e:
+            request_meta["exception"] = e  # type: ignore[assignment] # mypy, why are you so dumb..
 
         if catch_response:
-            response.locust_request_meta = request_meta
-            return ResponseContextManager(response, environment=self.environment)
+            return ResponseContextManager(response, self.request_event, request_meta, catch_response)
         else:
-            try:
-                response.raise_for_status()
-            except FAILURE_EXCEPTIONS as e:
-                self.environment.events.request_failure.fire(
-                    request_type=request_meta["method"],
-                    name=request_meta["name"],
-                    response_time=request_meta["response_time"],
-                    response_length=request_meta["content_size"],
-                    exception=e,
-                )
-            else:
-                self.environment.events.request_success.fire(
-                    request_type=request_meta["method"],
-                    name=request_meta["name"],
-                    response_time=request_meta["response_time"],
-                    response_length=request_meta["content_size"],
-                )
-            return response
+            # if not using with-block, report the request immediately
+            self.request_event.fire(**request_meta)
+            return response  # type: ignore[return-value]
 
-    def delete(self, path, **kwargs):
-        return self.request("DELETE", path, **kwargs)
+    def delete(self, url: str, **kwargs: Unpack[RESTKwargs]) -> ResponseContextManager:
+        """Sends a DELETE request"""
+        return self.request("DELETE", url, **kwargs)
 
-    def get(self, path, **kwargs):
+    def get(self, url: str, **kwargs: Unpack[RESTKwargs]) -> ResponseContextManager:
         """Sends a GET request"""
-        return self.request("GET", path, **kwargs)
+        return self.request("GET", url, **kwargs)
 
-    def head(self, path, **kwargs):
+    def iter_lines(self, url: str, method: str = "GET", **kwargs) -> Generator[str]:
+        """Sends a iter_lines request for streaming responses"""
+        response = self.request(method, url, stream=True, **kwargs)
+        response.raise_for_status()
+
+        decoder = getincrementaldecoder("utf-8")(errors="replace")
+        buffer = ""
+        for chunk in response.iter_content(chunk_size=1024, decode_content=False):
+            buffer += decoder.decode(chunk)
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                yield line
+
+        # Flush a final incomplete character using the same replacement policy.
+        buffer += decoder.decode(b"", final=True)
+        # Return to the last line that may be incomplete.
+        if buffer:
+            yield buffer
+
+    def head(self, url: str, **kwargs: Unpack[RESTKwargs]) -> ResponseContextManager:
         """Sends a HEAD request"""
-        return self.request("HEAD", path, **kwargs)
+        return self.request("HEAD", url, **kwargs)
 
-    def options(self, path, **kwargs):
+    def options(self, url: str, **kwargs: Unpack[RESTKwargs]) -> ResponseContextManager:
         """Sends a OPTIONS request"""
-        return self.request("OPTIONS", path, **kwargs)
+        return self.request("OPTIONS", url, **kwargs)
 
-    def patch(self, path, data=None, **kwargs):
+    def patch(self, url: str, data: str | dict | None = None, **kwargs: Unpack[PatchKwargs]) -> ResponseContextManager:
+        """Sends a PATCH request"""
+        return self.request("PATCH", url, data=data, **kwargs)
+
+    def post(
+        self, url: str, data: str | dict | None = None, json: Any = None, **kwargs: Unpack[PostKwargs]
+    ) -> ResponseContextManager:
         """Sends a POST request"""
-        return self.request("PATCH", path, data=data, **kwargs)
+        return self.request("POST", url, data=data, json=json, **kwargs)
 
-    def post(self, path, data=None, **kwargs):
-        """Sends a POST request"""
-        return self.request("POST", path, data=data, **kwargs)
-
-    def put(self, path, data=None, **kwargs):
+    def put(self, url: str, data: str | dict | None = None, **kwargs: Unpack[PutKwargs]) -> ResponseContextManager:
         """Sends a PUT request"""
-        return self.request("PUT", path, data=data, **kwargs)
+        return self.request("PUT", url, data=data, **kwargs)
 
 
-class FastHttpUser(User):
+class FastHttpUser(User, RestMixin["RestResponseContextManager"]):
     """
-    FastHttpUser uses a different HTTP client (geventhttpclient) compared to HttpUser (python-requests).
-    It's significantly faster, but not as capable.
-
-    The behaviour of this user is defined by it's tasks. Tasks can be declared either directly on the
-    class by using the :py:func:`@task decorator <locust.task>` on the methods, or by setting
-    the :py:attr:`tasks attribute <locust.User.tasks>`.
-
-    This class creates a *client* attribute on instantiation which is an HTTP client with support
-    for keeping a user session between requests.
-    """
-
-    client: FastHttpSession = None
-    """
-    Instance of HttpSession that is created upon instantiation of User.
-    The client support cookies, and therefore keeps the session between HTTP requests.
+    FastHttpUser provides the same API as HttpUser, but uses geventhttpclient instead of python-requests
+    as its underlying client. It uses considerably less CPU on the load generator, and should work
+    as a simple drop-in-replacement in most cases.
     """
 
     # Below are various UserAgent settings. Change these in your subclass to alter FastHttpUser's behaviour.
@@ -293,49 +389,108 @@ class FastHttpUser(User):
     connection_timeout: float = 60.0
     """Parameter passed to FastHttpSession"""
 
-    max_redirects: int = 5
-    """Parameter passed to FastHttpSession. Default 5, meaning 4 redirects."""
+    max_redirects: int = 30
+    """Parameter passed to FastHttpSession."""
 
-    max_retries: int = 1
-    """Parameter passed to FastHttpSession. Default 1, meaning zero retries."""
+    max_retries: int = 0
+    """Parameter passed to FastHttpSession."""
 
     insecure: bool = True
     """Parameter passed to FastHttpSession. Default True, meaning no SSL verification."""
 
+    default_headers: dict | None = None
+    """Parameter passed to FastHttpSession. Adds the listed headers to every request."""
+
+    concurrency: int = 10
+    """Parameter passed to FastHttpSession. Describes number of concurrent requests allowed by the FastHttpSession. Default 10.
+    Note that setting this value has no effect when custom client_pool was given, and you need to spawn a your own gevent pool
+    to use it (as Users only have one greenlet). See test_fasthttp.py / test_client_pool_concurrency for an example."""
+
+    proxy_host: str | None = None
+    """Parameter passed to FastHttpSession"""
+
+    proxy_port: int | None = None
+    """Parameter passed to FastHttpSession"""
+
+    client_pool: HTTPClientPool | None = None
+    """HTTP client pool to use. If not given, a new pool is created per single user.
+
+    For example, to have all instances of MyUser share a single HTTP client pool with concurrency of 5, you would do:
+
+    .. code-block:: python
+
+        from geventhttpclient.client import HTTPClientPool
+
+        class MyUser(FastHttpUser):
+            client_pool = HTTPClientPool(concurrency=5)
+    """
+
+    ssl_context_factory: Callable | None = None
+    """A callable that return a SSLContext for overriding the default context created by the FastHttpSession."""
+
     abstract = True
     """Dont register this as a User class that can be run by itself"""
 
-    def __init__(self, environment):
+    def __init__(self, environment) -> None:
         super().__init__(environment)
         if self.host is None:
-            raise LocustError(
+            raise StopTest(
                 "You must specify the base host. Either in the host attribute in the User class, or on the command line using the --host option."
             )
-        if not re.match(r"^https?://[^/]+", self.host, re.I):
-            raise LocustError("Invalid host (`%s`), must be a valid base URL. E.g. http://example.com" % self.host)
 
-        self.client = FastHttpSession(
-            self.environment,
+        self.client: FastHttpSession = FastHttpSession(
             base_url=self.host,
+            request_event=self.environment.events.request,
             network_timeout=self.network_timeout,
             connection_timeout=self.connection_timeout,
             max_redirects=self.max_redirects,
             max_retries=self.max_retries,
             insecure=self.insecure,
+            concurrency=self.concurrency,
+            user=self,
+            client_pool=self.client_pool,
+            ssl_context_factory=self.ssl_context_factory,
+            headers=self.default_headers,
+            proxy_host=self.proxy_host,
+            proxy_port=self.proxy_port,
         )
+        """
+        Instance of FastHttpSession that is created upon instantiation of User.
+        The client support cookies, and therefore keeps the session between HTTP requests.
+        """
+
+
+class FastRequest(CompatRequest):
+    payload: str | None = None
+
+    @property
+    def body(self) -> str | None:
+        return self.payload
 
 
 class FastResponse(CompatResponse):
-    headers = None
+    headers: Headers | None = None  # type: ignore
     """Dict like object containing the response headers"""
 
-    _response = None
+    _response: HTTPSocketPoolResponse | None = None  # type: ignore
 
-    encoding: str = None
+    encoding: str | float | None = None
     """In some cases setting the encoding explicitly is needed. If so, do it before calling .text"""
 
+    request: FastRequest | None = None
+
+    def __init__(
+        self,
+        ghc_response: HTTPSocketPoolResponse,
+        request: FastRequest | None = None,
+        sent_request: str | None = None,
+    ):
+        super().__init__(ghc_response, request, sent_request)
+
+        self.request = request
+
     @property
-    def text(self) -> str:
+    def text(self) -> str | None:  # type: ignore
         """
         Returns the text content of the response as a decoded string
         """
@@ -343,21 +498,69 @@ class FastResponse(CompatResponse):
             return None
         if self.encoding is None:
             if self.headers is None:
-                self.encoding = "utf-8"
+                # No information, try to detect
+                self.encoding = detect(self.content)["encoding"]
             else:
-                self.encoding = self.headers.get("content-type", "").partition("charset=")[2] or "utf-8"
-        return str(self.content, self.encoding, errors="replace")
+                self.encoding = get_encoding_from_headers(self.headers)  # type: ignore
+                # No information, try to detect
+                if not self.encoding:
+                    self.encoding = detect(self.content)["encoding"]
+        if self.encoding is None:
+            return None
+        return str(self.content, str(self.encoding), errors="replace")
+
+    @property
+    def url(self) -> str | None:
+        """
+        Get "response" URL, which is the same as the request URL. This is a small deviation from HttpSession, which gets the final (possibly redirected) URL.
+        """
+        if self.request is not None:
+            return self.request.url
+
+        return None
 
     def json(self) -> dict:
         """
         Parses the response as json and returns a dict
         """
-        return json.loads(self.text)
+        return json.loads(self.text)  # type: ignore
 
     def raise_for_status(self):
         """Raise any connection errors that occurred during the request"""
-        if hasattr(self, "error") and self.error:
-            raise self.error
+        if error := getattr(self, "error", None):
+            raise error
+
+    def iter_content(self, chunk_size=1024, decode_content=True):
+        """
+        Simulates the `requests.Response.iter_content` method
+
+        Used for streaming response content
+
+        :param `chunk_size`: The size of the chunk read each time
+
+        :param `decode_content`: Whether to decode the content (from bytes to string)
+
+        :return: A generator that produces one chunk at a time
+        """
+        if not self._response:
+            raise LocustError("Cannot iterate content on a response without _response attribute")
+
+        while True:
+            try:
+                chunk = self._response.read(chunk_size)
+                if not chunk:
+                    break
+
+                if decode_content and isinstance(chunk, bytes):
+                    try:
+                        chunk = chunk.decode("utf-8")
+                    except UnicodeDecodeError:
+                        # If decoding fails, preserve the data in byte format.
+                        pass
+
+                yield chunk
+            except (HTTPConnectionClosed, ConnectionError):
+                break
 
     @property
     def status_code(self) -> int:
@@ -365,44 +568,83 @@ class FastResponse(CompatResponse):
         We override status_code in order to return None if no valid response was
         returned. E.g. in the case of connection errors
         """
-        return self._response is not None and self._response.get_code() or 0
+        return self._response.get_code() if self._response is not None else 0
 
-    def _content(self):
+    @property
+    def ok(self):
+        """Returns True if :attr:`status_code` is less than 400, False if not."""
+        return self.status_code < 400
+
+    def _content(self):  # type: ignore
         if self.headers is None:
             return None
         return super()._content()
 
+    def success(self):
+        raise LocustError(
+            "If you want to change the state of the request, you must pass catch_response=True. See http://docs.locust.io/en/stable/writing-a-locustfile.html#validating-responses"
+        )
 
-class ErrorResponse:
+    def failure(self, *_args, **_kwargs):
+        raise LocustError(
+            "If you want to change the state of the request, you must pass catch_response=True. See http://docs.locust.io/en/stable/writing-a-locustfile.html#validating-responses"
+        )
+
+
+class ErrorResponse(FastResponse):  # we're really just pretending to be a FastResponse
     """
     This is used as a dummy response object when geventhttpclient raises an error
     that doesn't have a real Response object attached. E.g. a socket error or similar
     """
 
-    headers = None
-    content = None
-    status_code = 0
-    error = None
-    text = None
+    headers: Headers | None = None
+    content = None  # type: ignore
+    status_code = 0  # type: ignore
+    error: Exception | None = None
+    text: str | None = None  # type: ignore
+    request: CompatRequest  # type: ignore
+
+    def __init__(self, request: CompatRequest, error: Exception):
+        self.request = request  # type: ignore
+        self.error = error
 
     def raise_for_status(self):
-        raise self.error
+        if self.error:
+            raise self.error
+
+
+class LocustBadStatusCode(ConnectionError):
+    def __repr__(self):
+        repr_str = super().__repr__()
+        if self.kw_text:
+            return repr_str.replace(repr(self.url) + ", ", "")
+        return repr_str
 
 
 class LocustUserAgent(UserAgent):
     response_type = FastResponse
-    valid_response_codes = frozenset([200, 201, 202, 203, 204, 205, 206, 207, 208, 226, 301, 302, 303, 307])
+    request_type = FastRequest
+    valid_response_codes = frozenset([200, 201, 202, 203, 204, 205, 206, 207, 208, 226, 301, 302, 303, 304, 307, 308])
+    redirect_response_codes = frozenset([301, 302, 303, 307, 308])
 
-    def __init__(self, **kwargs):
+    def __init__(self, client_pool: HTTPClientPool | None = None, **kwargs):
         super().__init__(**kwargs)
+
+        if client_pool is not None:
+            self.clientpool = client_pool
 
     def _urlopen(self, request):
         """Override _urlopen() in order to make it use the response_type attribute"""
         client = self.clientpool.get_client(request.url_split)
-        resp = client.request(
-            request.method, request.url_split.request_uri, body=request.payload, headers=request.headers
-        )
+        # quoted_uri (percent-encoded, as geventhttpclient's own UserAgent sends it) was added in geventhttpclient 2.3.4
+        request_uri = getattr(request.url_split, "quoted_uri", request.url_split.request_uri)
+        resp = client.request(request.method, request_uri, body=request.payload, headers=request.headers)
         return self.response_type(resp, request=request, sent_request=resp._sent_request)
+
+    def _verify_status(self, status_code, url=None):
+        """Hook for subclassing"""
+        if status_code not in self.valid_response_codes:
+            raise LocustBadStatusCode(url, code=status_code)
 
 
 class ResponseContextManager(FastResponse):
@@ -416,58 +658,57 @@ class ResponseContextManager(FastResponse):
     """
 
     _manual_result = None
+    _entered = False
 
-    def __init__(self, response, environment):
-        # copy data from response to this object
-        self.__dict__ = response.__dict__
-        self._cached_content = response.content
-        # store reference to locust Environment
-        self.environment = environment
+    def __init__(self, response, request_event, request_meta, catch_response: bool):
+        # copy data from response to this object (use update to avoid sharing
+        # the dict reference, which creates a GC-reference cycle that Python 3.13+
+        # can collect mid-request — see #3388)
+        self.__dict__.update(response.__dict__)
+        try:
+            self._cached_content = response._cached_content
+        except AttributeError:
+            pass
+        self._request_event = request_event
+        self.request_meta = request_meta
+        self._catch_response = catch_response
 
     def __enter__(self):
+        if not self._catch_response:
+            raise LocustError("In order to use a with-block for requests, you must also pass catch_response=True")
+        self._entered = True
         return self
 
     def __exit__(self, exc, value, traceback):
+        # if the user has already manually marked this response as failure or success
+        # we ignore the default behaviour of letting the response code determine the outcome
         if self._manual_result is not None:
             if self._manual_result is True:
-                self._report_success()
+                self.request_meta["exception"] = None
+                self._report_request()
             elif isinstance(self._manual_result, Exception):
-                self._report_failure(self._manual_result)
+                self.request_meta["exception"] = self._manual_result
+                self._report_request()
 
-            # if the user has already manually marked this response as failure or success
-            # we can ignore the default behaviour of letting the response code determine the outcome
             return exc is None
 
         if exc:
             if isinstance(value, ResponseError):
-                self._report_failure(value)
+                self.request_meta["exception"] = value
+                self._report_request()
             else:
                 return False
         else:
             try:
                 self.raise_for_status()
             except FAILURE_EXCEPTIONS as e:
-                self._report_failure(e)
-            else:
-                self._report_success()
+                self.request_meta["exception"] = e
+            self._report_request()
+
         return True
 
-    def _report_success(self):
-        self.environment.events.request_success.fire(
-            request_type=self.locust_request_meta["method"],
-            name=self.locust_request_meta["name"],
-            response_time=self.locust_request_meta["response_time"],
-            response_length=self.locust_request_meta["content_size"],
-        )
-
-    def _report_failure(self, exc):
-        self.environment.events.request_failure.fire(
-            request_type=self.locust_request_meta["method"],
-            name=self.locust_request_meta["name"],
-            response_time=self.locust_request_meta["response_time"],
-            response_length=self.locust_request_meta["content_size"],
-            exception=exc,
-        )
+    def _report_request(self):
+        self._request_event.fire(**self.request_meta)
 
     def success(self):
         """
@@ -479,6 +720,10 @@ class ResponseContextManager(FastResponse):
                 if response.status_code == 404:
                     response.success()
         """
+        if not self._entered:
+            raise LocustError(
+                "Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:\n\nwith self.client.request(..., catch_response=True) as response:\n    response.success()"
+            )
         self._manual_result = True
 
     def failure(self, exc):
@@ -494,6 +739,23 @@ class ResponseContextManager(FastResponse):
                 if response.content == "":
                     response.failure("No data")
         """
+        if not self._entered:
+            raise LocustError(
+                "Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:\n\nwith self.client.request(..., catch_response=True) as response:\n    response.failure(...)"
+            )
         if not isinstance(exc, Exception):
             exc = CatchResponseError(exc)
         self._manual_result = exc
+
+    def raise_for_status(self):
+        """Raise any connection errors that occurred during the request"""
+        if not self._manual_result:
+            super().raise_for_status()
+        elif isinstance(self._manual_result, Exception):
+            raise self._manual_result
+
+
+class RestResponseContextManager(ResponseContextManager):
+    js: dict  # This is technically an Optional, but I dont want to force everyone to check it
+    error: Exception  # This one too
+    headers: Headers  # .. and this one

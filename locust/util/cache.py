@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import functools
 from time import time
 
@@ -26,10 +24,8 @@ def memoize(timeout, dynamic_timeout=False):
             return cache["result"]
 
         def clear_cache():
-            if "time" in cache:
-                del cache["time"]
-            if "result" in cache:
-                del cache["result"]
+            cache.pop("time", None)
+            cache.pop("result", None)
 
         wrapper.clear_cache = clear_cache
         return wrapper

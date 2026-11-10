@@ -27,7 +27,18 @@ class InterruptTaskSet(Exception):
         self.reschedule = reschedule
 
 
+class StopTest(Exception):
+    """
+    When raised, Locust will stop the entire test run.
+    """
+
+
 class StopUser(Exception):
+    """
+    This is only intended to be used internally in task.py.
+    Raising this in your locustfile in a full locust run may have unexpected results.
+    """
+
     pass
 
 
@@ -54,13 +65,24 @@ class RPCError(Exception):
     """
 
 
-class AuthCredentialsError(ValueError):
+class RPCSendError(Exception):
     """
-    Exception when the auth credentials provided
-    are not in the correct format
+    Exception when sending message to client.
+
+    When raised from zmqrpc, sending can be retried or RPC can be reestablished.
     """
 
-    pass
+
+class RPCReceiveError(Exception):
+    """
+    Exception when receiving message from client is interrupted or message is corrupted.
+
+    When raised from zmqrpc, client connection should be reestablished.
+    """
+
+    def __init__(self, *args: object, addr=None) -> None:
+        super().__init__(*args)
+        self.addr = addr
 
 
 class RunnerAlreadyExistsError(Exception):

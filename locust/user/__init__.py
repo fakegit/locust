@@ -1,2 +1,9 @@
-from .task import task, tag, TaskSet
+__all__ = (
+    "HttpUser",
+    "TaskSet",
+    "User",
+    "tag",
+    "task",
+)
+from .task import TaskSet, tag, task
 from .users import HttpUser, User

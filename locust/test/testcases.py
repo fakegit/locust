@@ -1,25 +1,24 @@
+import locust
+from locust import log
+from locust.env import Environment
+from locust.event import Events
+from locust.test.mock_logging import MockedLoggingHandler
+from locust.test.util import clear_all_functools_lru_cache
+
 import base64
 import logging
 import random
 import sys
 import unittest
 import warnings
-from copy import copy
 from io import BytesIO
 
 import gevent
 import gevent.pywsgi
 from flask import Flask, Response, make_response, redirect, request, send_file, stream_with_context
 
-import locust
-from locust import log
-from locust.event import Events
-from locust.env import Environment
-from locust.test.mock_logging import MockedLoggingHandler
-
-
 app = Flask(__name__)
-app.jinja_options["extensions"].append("jinja2.ext.do")
+app.jinja_env.add_extension("jinja2.ext.do")
 
 
 @app.route("/ultra_fast")
@@ -35,8 +34,7 @@ def fast():
 
 @app.route("/slow")
 def slow():
-    delay = request.args.get("delay")
-    if delay:
+    if delay := request.args.get("delay"):
         gevent.sleep(float(delay))
     else:
         gevent.sleep(random.choice([0.5, 1, 1.5]))
@@ -56,7 +54,16 @@ def request_method():
 
 @app.route("/request_header_test")
 def request_header_test():
-    return request.headers["X-Header-Test"]
+    x_header_test = request.headers["X-Header-Test"]
+    response = Response(x_header_test)
+    response.headers["X-Header-Test"] = x_header_test
+
+    return response
+
+
+@app.route("/echo_target/<path:subpath>")
+def echo_target(subpath):
+    return {"path": request.path, "query_string": request.query_string.decode("ascii")}
 
 
 @app.route("/post", methods=["POST"])
@@ -82,8 +89,7 @@ def status_204():
 
 @app.route("/redirect", methods=["GET", "POST"])
 def do_redirect():
-    delay = request.args.get("delay")
-    if delay:
+    if delay := request.args.get("delay"):
         gevent.sleep(float(delay))
     url = request.args.get("url", "/ultra_fast")
     return redirect(url)
@@ -102,8 +108,8 @@ def basic_auth():
 @app.route("/no_content_length")
 def no_content_length():
     r = send_file(
-        BytesIO("This response does not have content-length in the header".encode("utf-8")),
-        add_etags=False,
+        BytesIO(b"This response does not have content-length in the header"),
+        etag=False,
         mimetype="text/plain",
     )
     r.headers.remove("Content-Length")
@@ -122,7 +128,7 @@ def streaming_response(iterations):
     def generate():
         yield "<html><body><h1>streaming response</h1>"
         for i in range(iterations):
-            yield "<span>%s</span>\n" % i
+            yield f"<span>{i}</span>\n"
             time.sleep(0.01)
         yield "</body></html>"
 
@@ -139,6 +145,32 @@ def set_cookie():
 @app.route("/get_cookie")
 def get_cookie():
     return make_response(request.cookies.get(request.args.get("name"), ""))
+
+
+@app.route("/rest", methods=["POST"])
+def rest():
+    return request.json
+
+
+@app.route("/content_type_missing_charset")
+def content_type_missing_charset():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json;"
+    return resp
+
+
+@app.route("/content_type_regular")
+def content_type_regular():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json; charset=utf-8;"
+    return resp
+
+
+@app.route("/content_type_with_extra_stuff")
+def content_type_with_extra_stuff():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json; charset=utf-8; api-version=3.0"
+    return resp
 
 
 class LocustTestCase(unittest.TestCase):
@@ -159,12 +191,10 @@ class LocustTestCase(unittest.TestCase):
         # This causes tests that depends on calls to sys.stderr to fail, so we'll
         # suppress those warnings. For more info see:
         # https://github.com/requests/requests/issues/1882
-        try:
-            warnings.filterwarnings(action="ignore", message="unclosed <socket object", category=ResourceWarning)
-        except NameError:
-            # ResourceWarning doesn't exist in Python 2, but since the warning only appears
-            # on Python 3 we don't need to mock it. Instead we can happily ignore the exception
-            pass
+        warnings.filterwarnings(action="ignore", message="unclosed <socket object", category=ResourceWarning)
+        warnings.filterwarnings(
+            action="ignore", message="unclosed context <zmq.green.Context", category=ResourceWarning
+        )
 
         # set up mocked logging handler
         self._logger_class = MockedLoggingHandler()
@@ -184,6 +214,8 @@ class LocustTestCase(unittest.TestCase):
         [logging.root.addHandler(h) for h in self._root_log_handlers]
         self.mocked_log.reset()
 
+        clear_all_functools_lru_cache()
+
 
 class WebserverTestCase(LocustTestCase):
     """
@@ -192,7 +224,25 @@ class WebserverTestCase(LocustTestCase):
 
     def setUp(self):
         super().setUp()
-        self._web_server = gevent.pywsgi.WSGIServer(("127.0.0.1", 0), app, log=None)
+
+        self.connections_count = 0
+        self.requests_count = 0
+
+        class CountingWSGIHandler(gevent.pywsgi.WSGIHandler):
+            def handle(this):
+                self.connections_count += 1
+                super().handle()
+
+            def log_request(this):
+                self.requests_count += 1
+                super().log_request()
+
+        self._web_server = gevent.pywsgi.WSGIServer(
+            ("127.0.0.1", 0),
+            app,
+            log=None,
+            handler_class=CountingWSGIHandler,
+        )
         gevent.spawn(lambda: self._web_server.serve_forever())
         gevent.sleep(0.01)
         self.port = self._web_server.server_port

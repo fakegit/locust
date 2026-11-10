@@ -1,10 +1,8 @@
-from collections import namedtuple
-import math
-import time
-import random
+from locust import HttpUser, LoadTestShape, TaskSet, constant, task
 
-from locust import HttpUser, TaskSet, task, constant
-from locust import LoadTestShape
+import random
+import time
+from collections import namedtuple
 
 
 class UserTasks(TaskSet):
@@ -23,7 +21,7 @@ class WebsiteUser(HttpUser):
         # the User has a slow initialization for gathering data to randomly
         # select.
         time.sleep(random.randint(0, 5))
-        super(WebsiteUser, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
 
 Step = namedtuple("Step", ["users", "dwell"])
@@ -50,7 +48,7 @@ class StepLoadShape(LoadTestShape):
     def __init__(self, *args, **kwargs):
         self.step = 0
         self.time_active = False
-        super(StepLoadShape, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def tick(self):
         if self.step >= len(self.targets_with_times):

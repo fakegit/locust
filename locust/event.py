@@ -1,7 +1,14 @@
+from __future__ import annotations
+
 import logging
-from . import log
+import time
 import traceback
-from .exception import StopUser, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
+
+from . import log
+from .exception import InterruptTaskSet, RescheduleTask, RescheduleTaskImmediately, StopTest, StopUser
 
 
 class EventHook:
@@ -31,40 +38,61 @@ class EventHook:
         self._handlers.remove(handler)
 
     def fire(self, *, reverse=False, **kwargs):
-        if reverse:
-            handlers = reversed(self._handlers)
-        else:
-            handlers = self._handlers
+        # iterate over a copy, so that listeners can add or remove listeners while the event is firing
+        handlers = self._handlers[::-1] if reverse else self._handlers.copy()
         for handler in handlers:
             try:
                 handler(**kwargs)
-            except (StopUser, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet):
-                # These exceptions could be thrown by, for example, a request_failure handler,
+            except (StopUser, StopTest, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet):
+                # These exceptions could be thrown by, for example, a request handler,
                 # in which case they are entirely appropriate and should not be caught
                 raise
             except Exception:
                 logging.error("Uncaught exception in event handler: \n%s", traceback.format_exc())
                 log.unhandled_greenlet_exception = True
 
+    @contextmanager
+    def measure(
+        self, request_type: str, name: str, response_length: int = 0, context=None
+    ) -> Generator[dict[str, Any]]:
+        """Convenience method for firing the event with automatically calculated response time and automatically marking the request as failed if an exception is raised (this is really only useful for the *request* event)
+
+        Example usage (in a task):
+
+        .. code-block:: python
+
+            with self.environment.events.request.measure("requestType", "requestName") as request_meta:
+                # do the stuff you want to measure
+
+        You can optionally add/overwrite entries in the request_meta dict and they will be passed to the request event.
+
+        Experimental.
+        """
+        start_time = time.time()
+        start_perf_counter = time.perf_counter()
+        request_meta = {
+            "request_type": request_type,
+            "name": name,
+            "response_length": response_length,
+            "context": context or {},
+            "exception": None,
+            "start_time": start_time,
+        }
+        try:
+            yield request_meta
+        except (StopUser, StopTest, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet):
+            raise
+        except Exception as e:
+            request_meta["exception"] = e
+        finally:
+            request_meta["response_time"] = (time.perf_counter() - start_perf_counter) * 1000
+            self.fire(**request_meta)
+
 
 class Events:
-    request_success: EventHook
+    request: EventHook
     """
-    Fired when a request is completed successfully. This event is typically used to report requests
-    when writing custom clients for locust.
-
-    Event arguments:
-
-    :param request_type: Request type method used
-    :param name: Path to the URL that was called (or override name if it was used in the call to the client)
-    :param response_time: Response time in milliseconds
-    :param response_length: Content-length of the response
-    """
-
-    request_failure: EventHook
-    """
-    Fired when a request fails. This event is typically used to report failed requests when writing
-    custom clients for locust.
+    Fired when a request in completed.
 
     Event arguments:
 
@@ -72,7 +100,11 @@ class Events:
     :param name: Path to the URL that was called (or override name if it was used in the call to the client)
     :param response_time: Time in milliseconds until exception was thrown
     :param response_length: Content-length of the response
-    :param exception: Exception instance that was thrown
+    :param response: Response object (e.g. a :py:class:`requests.Response`)
+    :param context: :ref:`User/request context <request_context>`
+    :param exception: Exception instance that was thrown. None if request was successful.
+
+    If you want to simplify a custom client, you can have Locust measure the time for you by using :meth:`measure() <locust.event.EventHook.measure>`
     """
 
     user_error: EventHook
@@ -113,30 +145,47 @@ class Events:
     :param data: Data dict with the data from the worker node
     """
 
-    spawning_complete: EventHook
+    worker_connect: EventHook
     """
-    Fired when all simulated users has been spawned.
+    Fired on master when a new worker connects. Note that is fired immediately after the connection is established, so init event may not yet have finished on worker.
 
     Event arguments:
 
-    :param user_count: Number of users that were spawned
+    :param client_id: Client id of the connected worker
+    """
+
+    spawning_complete: EventHook
+    """
+    Fired when all simulated users has been spawned. The event is fired on master first, and then distributed to workers.
+
+    Event arguments:
+
+    :param user_count: Number of users that were spawned (in total, not per-worker)
     """
 
     quitting: EventHook
     """
-    Fired when the locust process is exiting
+    Fired when the locust process is exiting.
 
     Event arguments:
 
     :param environment: Environment instance
     """
 
+    quit: EventHook
+    """
+    Fired after quitting events, just before process is exited.
+
+    Event arguments:
+
+    :param exit_code: Exit code for process
+    """
+
     init: EventHook
     """
     Fired when Locust is started, once the Environment instance and locust runner instance
     have been created. This hook can be used by end-users' code to run code that requires access to
-    the Environment. For example to register listeners to request_success, request_failure
-    or other events.
+    the Environment. For example to register listeners to other events.
 
     Event arguments:
 
@@ -154,15 +203,30 @@ class Events:
 
     test_start: EventHook
     """
-    Fired when a new load test is started. It's not fired again if the number of
-    users change during a test. When running locust distributed the event is only fired
-    on the master node and not on each worker node.
+    Fired on each node when a new load test is started. It's not fired again if the number of
+    users change during a test.
+
+    Event arguments:
+
+    :param environment: Environment instance
+    """
+
+    test_stopping: EventHook
+    """
+    Fired on each node when a load test is about to stop - before stopping users.
+
+    Event arguments:
+
+    :param environment: Environment instance
     """
 
     test_stop: EventHook
     """
-    Fired when a load test is stopped. When running locust distributed the event
-    is only fired on the master node and not on each worker node.
+    Fired on each node when a load test is stopped.
+
+    Event arguments:
+
+    :param environment: Environment instance
     """
 
     reset_stats: EventHook
@@ -170,12 +234,54 @@ class Events:
     Fired when the Reset Stats button is clicked in the web UI.
     """
 
+    cpu_warning: EventHook
+    """
+    Fired when the CPU usage exceeds runners.CPU_WARNING_THRESHOLD (90% by default)
+
+    Event arguments:
+
+    :param environment: Environment instance
+    :param cpu_usage: Current CPU usage in percent
+    """
+
+    heartbeat_sent: EventHook
+    """
+    Fired when a heartbeat is sent by master to a worker.
+
+    Event arguments:
+
+    :param client_id: worker client id
+    :param timestamp: time in seconds since the epoch (float) when the event occurred
+    """
+
+    heartbeat_received: EventHook
+    """
+    Fired when a heartbeat is received by a worker from master.
+
+    Event arguments:
+
+    :param client_id: worker client id
+    :param timestamp: time in seconds since the epoch (float) when the event occurred
+    """
+
+    usage_monitor: EventHook
+    """
+    Fired every runners.CPU_MONITOR_INTERVAL (5.0 seconds by default) with information about
+    current CPU and memory usage.
+
+    Event arguments:
+
+    :param environment: locust environment
+    :param cpu_usage: current CPU usage in percent
+    :param memory_usage: current memory usage (RSS) in bytes
+    """
+
     def __init__(self):
-        # For backwarde compatiblilty use also values of class attributes
+        # For backward compatibility use also values of class attributes
         for name, value in vars(type(self)).items():
-            if value == EventHook:
-                setattr(self, name, value())
+            if value == "EventHook":
+                setattr(self, name, EventHook())
 
         for name, value in self.__annotations__.items():
-            if value == EventHook:
-                setattr(self, name, value())
+            if value == "EventHook":
+                setattr(self, name, EventHook())

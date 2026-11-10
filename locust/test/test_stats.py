@@ -1,28 +1,42 @@
-import csv
-import time
-import unittest
-import re
-import os
-import json
-
-import gevent
-import mock
 import locust
-from locust import HttpUser, TaskSet, task, User, constant
+from locust import HttpUser, TaskSet, User, __version__, constant, task
 from locust.env import Environment
 from locust.rpc.protocol import Message
-from locust.stats import CachedResponseTimes, RequestStats, StatsEntry, diff_response_time_dicts, PERCENTILES_TO_REPORT
-from locust.stats import StatsCSVFileWriter
-from locust.stats import stats_history
-from locust.test.testcases import LocustTestCase
-from locust.user.inspectuser import get_task_ratio_dict
+from locust.stats import (
+    PERCENTILES_TO_REPORT,
+    STATS_NAME_WIDTH,
+    STATS_TYPE_WIDTH,
+    CachedResponseTimes,
+    RequestStats,
+    StatsCSVFileWriter,
+    StatsEntry,
+    StatsError,
+    bucket_response_time,
+    diff_response_time_dicts,
+    setup_distributed_stats_event_listeners,
+    stats_history,
+)
+from locust.test.test_runners import mocked_rpc
+from locust.test.testcases import LocustTestCase, WebserverTestCase
+from locust.user.inspectuser import _get_task_ratio
 
-from .testcases import WebserverTestCase
-from .test_runners import mocked_rpc
+import csv
+import json
+import os
+import re
+import time
+import unittest
+from io import StringIO
+from unittest import mock
 
+import gevent
 
 _TEST_CSV_STATS_INTERVAL_SEC = 0.2
 _TEST_CSV_STATS_INTERVAL_WAIT_SEC = _TEST_CSV_STATS_INTERVAL_SEC + 0.1
+
+_TEST_PERCENTILES_TO_CHART_MANY = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+_TEST_PERCENTILES_TOO_HIGH = [1.5, 2.95]
+_TEST_PERCENTILES_WRONG_TYPE = ["a", "b"]
 
 
 def _write_csv_files(environment, stats_base_name, full_history=False):
@@ -32,6 +46,66 @@ def _write_csv_files(environment, stats_base_name, full_history=False):
     gevent.sleep(_TEST_CSV_STATS_INTERVAL_WAIT_SEC)
     gevent.kill(greenlet)
     stats_writer.close_files()
+
+
+class TestStatsValidation(unittest.TestCase):
+    def test_stats_validation_normal_no_return_exit(self):
+        assert locust.stats.validate_stats_configuration() is None
+
+    @mock.patch("locust.stats.PERCENTILES_TO_CHART", new=_TEST_PERCENTILES_TO_CHART_MANY)
+    def test_stats_validation_fail_on_too_many_percentiles_to_chart(self):
+        out = StringIO()
+        with mock.patch("sys.stderr", new=out):
+            with self.assertRaises(SystemExit) as error:
+                locust.stats.validate_stats_configuration()
+        out.seek(0)
+        stderr = out.read()
+        self.assertEqual(error.exception.code, 1)
+        self.assertIn("should be a maximum of 6 parameters", stderr)
+
+    @mock.patch("locust.stats.PERCENTILES_TO_CHART", new=_TEST_PERCENTILES_TOO_HIGH)
+    def test_stats_validation_fail_on_too_high_chart_value(self):
+        out = StringIO()
+        with mock.patch("sys.stderr", new=out):
+            with self.assertRaises(SystemExit) as error:
+                locust.stats.validate_stats_configuration()
+        out.seek(0)
+        stderr = out.read()
+        self.assertEqual(error.exception.code, 1)
+        self.assertIn("value between. 0 < percentile < 1 Eg 0.95", stderr)
+
+    @mock.patch("locust.stats.PERCENTILES_TO_STATISTICS", new=_TEST_PERCENTILES_TOO_HIGH)
+    def test_stats_validation_fail_on_too_high_statistic_value(self):
+        out = StringIO()
+        with mock.patch("sys.stderr", new=out):
+            with self.assertRaises(SystemExit) as error:
+                locust.stats.validate_stats_configuration()
+        out.seek(0)
+        stderr = out.read()
+        self.assertEqual(error.exception.code, 1)
+        self.assertIn("value between. 0 < percentile < 1 Eg 0.95", stderr)
+
+    @mock.patch("locust.stats.PERCENTILES_TO_CHART", new=_TEST_PERCENTILES_WRONG_TYPE)
+    def test_stats_validation_fail_on_wrong_type_chart_value(self):
+        out = StringIO()
+        with mock.patch("sys.stderr", new=out):
+            with self.assertRaises(SystemExit) as error:
+                locust.stats.validate_stats_configuration()
+        out.seek(0)
+        stderr = out.read()
+        self.assertEqual(error.exception.code, 1)
+        self.assertIn("need to be float", stderr)
+
+    @mock.patch("locust.stats.PERCENTILES_TO_STATISTICS", new=_TEST_PERCENTILES_WRONG_TYPE)
+    def test_stats_validation_fail_on_wrong_type_statistic_value(self):
+        out = StringIO()
+        with mock.patch("sys.stderr", new=out):
+            with self.assertRaises(SystemExit) as error:
+                locust.stats.validate_stats_configuration()
+        out.seek(0)
+        stderr = out.read()
+        self.assertEqual(error.exception.code, 1)
+        self.assertIn("need to be float", stderr)
 
 
 class TestRequestStats(unittest.TestCase):
@@ -57,7 +131,7 @@ class TestRequestStats(unittest.TestCase):
         log(79, 1)
         log(None, 1)
         log_error(Exception("dummy fail"))
-        self.s = self.stats.get("test_entry", "GET")
+        self.s = self.stats.entries[("test_entry", "GET")]
 
     def test_percentile(self):
         s = StatsEntry(self.stats, "percentile_test", "GET")
@@ -68,8 +142,26 @@ class TestRequestStats(unittest.TestCase):
         self.assertEqual(s.get_response_time_percentile(0.6), 60)
         self.assertEqual(s.get_response_time_percentile(0.95), 95)
 
+    def test_percentile_with_none_response_times(self):
+        s = StatsEntry(self.stats, "percentile_test", "GET")
+        for x in range(100):
+            s.log(x, 0)
+        for _ in range(100):
+            s.log(None, 0)
+
+        self.assertEqual(s.get_response_time_percentile(0.5), 50)
+        self.assertEqual(s.get_response_time_percentile(0.6), 60)
+        self.assertEqual(s.get_response_time_percentile(0.95), 95)
+
     def test_median(self):
         self.assertEqual(self.s.median_response_time, 79)
+
+    def test_median_matches_p50_for_even_samples(self):
+        s = StatsEntry(self.stats, "median_p50", "GET")
+        s.log(100, 0)
+        s.log(200, 0)
+        self.assertEqual(s.median_response_time, 200)
+        self.assertEqual(s.median_response_time, s.get_response_time_percentile(0.5))
 
     def test_median_out_of_min_max_bounds(self):
         s = StatsEntry(self.stats, "median_test", "GET")
@@ -81,7 +173,7 @@ class TestRequestStats(unittest.TestCase):
 
     def test_total_rps(self):
         self.stats.log_request("GET", "other_endpoint", 1337, 1337)
-        s2 = self.stats.get("other_endpoint", "GET")
+        s2 = self.stats.entries[("other_endpoint", "GET")]
         s2.start_time = 2.0
         s2.last_request_timestamp = 6.0
         self.s.start_time = 1.0
@@ -135,7 +227,7 @@ class TestRequestStats(unittest.TestCase):
         self.assertEqual(self.s.num_requests, 2)
         self.assertEqual(self.s.num_failures, 1)
         self.assertEqual(self.s.avg_response_time, 420.5)
-        self.assertEqual(self.s.median_response_time, 85)
+        self.assertEqual(self.s.median_response_time, 756)
         self.assertNotEqual(None, self.s.last_request_timestamp)
         self.s.reset()
         self.assertEqual(None, self.s.last_request_timestamp)
@@ -191,7 +283,7 @@ class TestRequestStats(unittest.TestCase):
         s1.log(977, 0)  # (rounded 980)
 
         self.assertEqual(s1.num_requests, 8)
-        self.assertEqual(s1.median_response_time, 550)
+        self.assertEqual(s1.median_response_time, 560)
         self.assertEqual(s1.avg_response_time, 535.75)
         self.assertEqual(s1.min_response_time, 122)
         self.assertEqual(s1.max_response_time, 992)
@@ -239,16 +331,28 @@ class TestRequestStats(unittest.TestCase):
 
     def test_percentile_rounded_down(self):
         s1 = StatsEntry(self.stats, "rounding down!", "GET")
-        s1.log(122, 0)  # (rounded 120) min
+        s1.log(122, 0)  # rounded 120, which is below the min
         actual_percentile = s1.percentile().split()
 
-        self.assertEqual(actual_percentile, ["GET", "rounding", "down!"] + ["120"] * len(PERCENTILES_TO_REPORT) + ["1"])
+        self.assertEqual(actual_percentile, ["GET", "rounding", "down!"] + ["122"] * len(PERCENTILES_TO_REPORT) + ["1"])
 
     def test_percentile_rounded_up(self):
         s2 = StatsEntry(self.stats, "rounding up!", "GET")
-        s2.log(127, 0)  # (rounded 130) min
+        s2.log(127, 0)  # rounded 130, which is above the max
         actual_percentile = s2.percentile().split()
-        self.assertEqual(actual_percentile, ["GET", "rounding", "up!"] + ["130"] * len(PERCENTILES_TO_REPORT) + ["1"])
+        self.assertEqual(actual_percentile, ["GET", "rounding", "up!"] + ["127"] * len(PERCENTILES_TO_REPORT) + ["1"])
+
+    def test_percentile_within_min_max_bounds(self):
+        s = StatsEntry(self.stats, "percentile_bounds", "GET")
+        for _ in range(99):
+            s.log(1020, 0)  # rounded 1000, which is below the min
+        s.log(1460, 0)  # rounded 1500, which is above the max
+
+        self.assertEqual(s.get_response_time_percentile(0.5), 1020)
+        self.assertEqual(s.get_response_time_percentile(0.95), 1020)
+        self.assertEqual(s.get_response_time_percentile(0.99), 1460)
+        self.assertEqual(s.get_response_time_percentile(1.0), 1460)
+        self.assertEqual(s.median_response_time, s.get_response_time_percentile(0.5))
 
     def test_custom_percentile_list(self):
         s = StatsEntry(self.stats, "custom_percentiles", "GET")
@@ -282,8 +386,49 @@ class TestRequestStats(unittest.TestCase):
         class Dummy:
             pass
 
-        self.stats.log_error("GET", "/", Exception("Error caused by %r" % Dummy()))
+        self.stats.log_error("GET", "/", Exception(f"Error caused by {Dummy()!r}"))
         self.assertEqual(1, len(self.stats.errors))
+
+    def test_error_first_seen_and_last_seen(self):
+        self.stats = RequestStats()
+
+        before = time.time()
+        self.stats.log_error("GET", "/some-path", Exception("Exception!"))
+        error = list(self.stats.errors.values())[0]
+        first_seen = error.first_seen
+        self.assertIsNotNone(first_seen)
+        self.assertIsNotNone(error.last_seen)
+        self.assertGreaterEqual(first_seen, before)
+        self.assertEqual(first_seen, error.last_seen)
+
+        # last_seen advances on subsequent occurrences while first_seen stays
+        time.sleep(0.01)
+        self.stats.log_error("GET", "/some-path", Exception("Exception!"))
+        self.assertEqual(first_seen, error.first_seen)
+        self.assertGreater(error.last_seen, first_seen)
+
+    def test_error_master_merge_extends_first_and_last_seen(self):
+        master_stats = RequestStats()
+        env = Environment()
+        setup_distributed_stats_event_listeners(env.events, master_stats)
+
+        error = Exception("boom")
+        key = StatsError.create_key("GET", "/x", error)
+        worker_a = StatsError("GET", "/x", error, occurrences=2, first_seen=100.0, last_seen=110.0).serialize()
+        worker_b = StatsError("GET", "/x", error, occurrences=3, first_seen=90.0, last_seen=120.0).serialize()
+        empty_total = StatsEntry(master_stats, "", "").serialize()
+
+        env.events.worker_report.fire(
+            client_id="a", data={"stats": [], "stats_total": empty_total, "errors": {key: worker_a}}
+        )
+        env.events.worker_report.fire(
+            client_id="b", data={"stats": [], "stats_total": empty_total, "errors": {key: worker_b}}
+        )
+
+        merged = master_stats.errors[key]
+        self.assertEqual(merged.occurrences, 5)
+        self.assertEqual(merged.first_seen, 90.0)
+        self.assertEqual(merged.last_seen, 120.0)
 
     def test_serialize_through_message(self):
         """
@@ -295,34 +440,82 @@ class TestRequestStats(unittest.TestCase):
         s1.log(10, 0)
         s1.log(20, 0)
         s1.log(40, 0)
-        u1 = StatsEntry.unserialize(s1.serialize())
+        u1 = StatsEntry.unserialize(s1.serialize(), self.stats)
 
         data = Message.unserialize(Message("dummy", s1.serialize(), "none").serialize()).data
-        u1 = StatsEntry.unserialize(data)
+        u1 = StatsEntry.unserialize(data, self.stats)
 
         self.assertEqual(20, u1.median_response_time)
 
 
 class TestStatsPrinting(LocustTestCase):
-    def test_print_percentile_stats(self):
-        stats = RequestStats()
+    def setUp(self):
+        super().setUp()
+
+        self.stats = RequestStats()
         for i in range(100):
-            stats.log_request("GET", "test_entry", i, 2000 + i)
-        locust.stats.print_percentile_stats(stats)
+            for method, name, freq in [
+                (
+                    "GET",
+                    "test_entry",
+                    5,
+                ),
+                (
+                    "DELETE",
+                    "test" * int((STATS_NAME_WIDTH - STATS_TYPE_WIDTH + 4) / len("test")),
+                    3,
+                ),
+            ]:
+                self.stats.log_request(method, name, i, 2000 + i)
+                if i % freq == 0:
+                    self.stats.log_error(method, name, RuntimeError(f"{method} error"))
+
+    def test_print_percentile_stats(self):
+        locust.stats.print_percentile_stats(self.stats)
         info = self.mocked_log.info
-        self.assertEqual(7, len(info))
+        self.assertEqual(8, len(info))
+        self.assertEqual("Response time percentiles (approximated)", info[0])
         # check that headline contains same number of column as the value rows
         headlines = info[1].replace("# reqs", "#reqs").split()
         self.assertEqual(len(headlines), len(info[3].split()))
-        self.assertEqual(len(headlines), len(info[5].split()))
+        self.assertEqual(len(headlines) - 1, len(info[-2].split()))  # Aggregated, no "Type"
+        self.assertEqual(info[2], info[-3])  # table ascii separators
+
+    def test_print_stats(self):
+        locust.stats.print_stats(self.stats)
+        info = self.mocked_log.info
+        self.assertEqual(7, len(info))
+
+        headlines = info[0].replace("# ", "#").split()
+
+        # check number of columns in separator
+        self.assertEqual(len(headlines), len(info[1].split("|")) + 2)
+        # check entry row
+        self.assertEqual(len(headlines), len(info[2].split()))
+        # check aggregated row, which is missing value in "type"-column
+        self.assertEqual(len(headlines) - 1, len(info[-2].split()))
+        # table ascii separators
+        self.assertEqual(info[1], info[-3])
+
+    def test_print_error_report(self):
+        locust.stats.print_error_report(self.stats)
+        info = self.mocked_log.info
+        self.assertEqual(7, len(info))
+        self.assertEqual("Error report", info[0])
+
+        headlines = info[1].replace("# ", "#").split()
+        # check number of columns in headlines vs table ascii separator
+        self.assertEqual(len(headlines), len(info[2].split("|")))
+        # table ascii separators
+        self.assertEqual(info[2], info[-2])
 
 
 class TestCsvStats(LocustTestCase):
     STATS_BASE_NAME = "test"
-    STATS_FILENAME = "{}_stats.csv".format(STATS_BASE_NAME)
-    STATS_HISTORY_FILENAME = "{}_stats_history.csv".format(STATS_BASE_NAME)
-    STATS_FAILURES_FILENAME = "{}_failures.csv".format(STATS_BASE_NAME)
-    STATS_EXCEPTIONS_FILENAME = "{}_exceptions.csv".format(STATS_BASE_NAME)
+    STATS_FILENAME = f"{STATS_BASE_NAME}_stats.csv"
+    STATS_HISTORY_FILENAME = f"{STATS_BASE_NAME}_stats_history.csv"
+    STATS_FAILURES_FILENAME = f"{STATS_BASE_NAME}_failures.csv"
+    STATS_EXCEPTIONS_FILENAME = f"{STATS_BASE_NAME}_exceptions.csv"
 
     def setUp(self):
         super().setUp()
@@ -377,8 +570,18 @@ class TestCsvStats(LocustTestCase):
         stats_writer = StatsCSVFileWriter(
             self.environment, PERCENTILES_TO_REPORT, self.STATS_BASE_NAME, full_history=True
         )
-        self.runner.stats.log_request("GET", "/", 10, content_length=666)
+
+        for i in range(10):
+            self.runner.stats.log_request("GET", "/", 100, content_length=666)
+
         greenlet = gevent.spawn(stats_writer)
+        gevent.sleep(10)
+
+        for i in range(10):
+            self.runner.stats.log_request("GET", "/", 10, content_length=666)
+
+        gevent.sleep(5)
+
         gevent.sleep(_TEST_CSV_STATS_INTERVAL_WAIT_SEC)
         gevent.kill(greenlet)
         stats_writer.close_files()
@@ -392,11 +595,41 @@ class TestCsvStats(LocustTestCase):
             reader = csv.DictReader(f)
             rows = [r for r in reader]
 
-        self.assertEqual(4, len(rows))
+        self.assertGreaterEqual(len(rows), 130)
+
         self.assertEqual("/", rows[0]["Name"])
         self.assertEqual("Aggregated", rows[1]["Name"])
         self.assertEqual("/", rows[2]["Name"])
         self.assertEqual("Aggregated", rows[3]["Name"])
+        self.assertEqual("20", rows[-1]["Total Request Count"])
+
+        saw100 = False
+        saw10 = False
+
+        for row in rows:
+            if not saw100 and row["95%"] == "100":
+                saw100 = True
+            elif saw100 and row["95%"] == "10":
+                saw10 = True
+                break
+
+        self.assertTrue(saw100, "Never saw 95th percentile increase to 100")
+        self.assertTrue(saw10, "Never saw 95th percentile decrease to 10")
+
+    def test_stats_history_without_response_times_cache(self):
+        # Worker nodes keep no response times cache, so the history rows fall back to the total percentiles
+        environment = Environment()
+        environment.stats = RequestStats(use_response_times_cache=False)
+        stats_writer = StatsCSVFileWriter(environment, PERCENTILES_TO_REPORT, self.STATS_BASE_NAME, full_history=True)
+        environment.stats.log_request("GET", "/", 100, content_length=0)
+
+        data = StringIO()
+        stats_writer._stats_history_data_rows(csv.writer(data), time.time())
+        stats_writer.close_files()
+        rows = list(csv.DictReader(StringIO(data.getvalue()), fieldnames=stats_writer.stats_history_csv_columns))
+
+        self.assertEqual(["/", "Aggregated"], [row["Name"] for row in rows])
+        self.assertEqual(["100", "100"], [row["95%"] for row in rows])
 
     def test_csv_stats_on_master_from_aggregated_stats(self):
         # Failing test for: https://github.com/locustio/locust/issues/1315
@@ -409,18 +642,18 @@ class TestCsvStats(LocustTestCase):
             greenlet = gevent.spawn(stats_writer)
             gevent.sleep(_TEST_CSV_STATS_INTERVAL_WAIT_SEC)
 
-            server.mocked_send(Message("client_ready", None, "fake_client"))
+            server.mocked_send(Message("client_ready", __version__, "fake_client"))
 
-            master.stats.get("/", "GET").log(100, 23455)
-            master.stats.get("/", "GET").log(800, 23455)
-            master.stats.get("/", "GET").log(700, 23455)
+            master.stats.entries[("/", "GET")].log(100, 23455)
+            master.stats.entries[("/", "GET")].log(800, 23455)
+            master.stats.entries[("/", "GET")].log(700, 23455)
 
             data = {"user_count": 1}
             environment.events.report_to_master.fire(client_id="fake_client", data=data)
             master.stats.clear_all()
 
             server.mocked_send(Message("stats", data, "fake_client"))
-            s = master.stats.get("/", "GET")
+            s = master.stats.entries[("/", "GET")]
             self.assertEqual(700, s.median_response_time)
 
             gevent.kill(greenlet)
@@ -445,37 +678,43 @@ class TestCsvStats(LocustTestCase):
         environment = Environment(user_classes=[TestUser])
         stats_writer = StatsCSVFileWriter(environment, PERCENTILES_TO_REPORT, self.STATS_BASE_NAME, full_history=True)
         runner = environment.create_local_runner()
-        runner.start(3, 5)  # spawn a user every _TEST_CSV_STATS_INTERVAL_SEC second
+        # spawn a user every _TEST_CSV_STATS_INTERVAL_SEC second
+        user_count = 15
+        spawn_rate = 5
+        assert 1 / 5 == _TEST_CSV_STATS_INTERVAL_SEC
+        runner_greenlet = gevent.spawn(runner.start, user_count, spawn_rate)
         gevent.sleep(0.1)
 
         greenlet = gevent.spawn(stats_writer)
-        gevent.sleep(0.6)
+        gevent.sleep(user_count / spawn_rate)
         gevent.kill(greenlet)
         stats_writer.close_files()
         runner.stop()
+        gevent.kill(runner_greenlet)
 
         with open(self.STATS_HISTORY_FILENAME) as f:
             reader = csv.DictReader(f)
             rows = [r for r in reader]
 
-        self.assertEqual(6, len(rows))
-        for i in range(3):
-            row = rows.pop(0)
-            self.assertEqual("%i" % (i + 1), row["User Count"])
-            self.assertEqual("/", row["Name"])
-            self.assertEqual("%i" % (i + 1), row["Total Request Count"])
-            self.assertGreaterEqual(int(row["Timestamp"]), start_time)
-            row = rows.pop(0)
-            self.assertEqual("%i" % (i + 1), row["User Count"])
-            self.assertEqual("Aggregated", row["Name"])
-            self.assertEqual("%i" % (i + 1), row["Total Request Count"])
-            self.assertGreaterEqual(int(row["Timestamp"]), start_time)
+        self.assertEqual(2 * user_count, len(rows))
+        for i in range(int(user_count / spawn_rate)):
+            for _ in range(spawn_rate):
+                row = rows.pop(0)
+                self.assertEqual("%i" % ((i + 1) * spawn_rate), row["User Count"])
+                self.assertEqual("/", row["Name"])
+                self.assertEqual("%i" % ((i + 1) * spawn_rate), row["Total Request Count"])
+                self.assertGreaterEqual(int(row["Timestamp"]), start_time)
+                row = rows.pop(0)
+                self.assertEqual("%i" % ((i + 1) * spawn_rate), row["User Count"])
+                self.assertEqual("Aggregated", row["Name"])
+                self.assertEqual("%i" % ((i + 1) * spawn_rate), row["Total Request Count"])
+                self.assertGreaterEqual(int(row["Timestamp"]), start_time)
 
     def test_requests_csv_quote_escaping(self):
         with mock.patch("locust.rpc.rpc.Server", mocked_rpc()) as server:
             environment = Environment()
             master = environment.create_master_runner(master_bind_host="*", master_bind_port=0)
-            server.mocked_send(Message("client_ready", None, "fake_client"))
+            server.mocked_send(Message("client_ready", __version__, "fake_client"))
 
             request_name_dict = {
                 "scenario": "get cashes",
@@ -484,7 +723,7 @@ class TestCsvStats(LocustTestCase):
             }
             request_name_str = json.dumps(request_name_dict)
 
-            master.stats.get(request_name_str, "GET").log(100, 23455)
+            master.stats.entries[(request_name_str, "GET")].log(100, 23455)
             data = {"user_count": 1}
             environment.events.report_to_master.fire(client_id="fake_client", data=data)
             master.stats.clear_all()
@@ -497,14 +736,32 @@ class TestCsvStats(LocustTestCase):
                 csv_request_name = rows[0].get("Name")
                 self.assertEqual(request_name_str, csv_request_name)
 
+    def test_csv_files_are_utf8_with_crlf_line_endings(self):
+        name = "/\u0645\u0631\u062d\u0628\u0627/\u4f60\u597d"  # can not be encoded with cp1252
+        self.environment.events.request.fire(
+            request_type="GET", name=name, response_time=1, response_length=1, exception=None, context={}
+        )
+        self.environment.events.request.fire(
+            request_type="GET", name=name, response_time=1, response_length=1, exception=Exception(name), context={}
+        )
+        _write_csv_files(self.environment, self.STATS_BASE_NAME, full_history=True)
+
+        for filename in (self.STATS_FILENAME, self.STATS_HISTORY_FILENAME, self.STATS_FAILURES_FILENAME):
+            with open(filename, "rb") as f:
+                content = f.read()
+            self.assertIn(b"\r\n", content)
+            self.assertNotIn(b"\r\r\n", content)
+            self.assertIn(name, content.decode("utf-8"))
+
     def test_stats_history(self):
         env1 = Environment(events=locust.events, catch_exceptions=False)
         runner1 = env1.create_master_runner("127.0.0.1", 5558)
+        runner1.state = "running"
         env2 = Environment(events=locust.events, catch_exceptions=False)
         runner2 = env2.create_worker_runner("127.0.0.1", 5558)
         greenlet1 = gevent.spawn(stats_history, runner1)
         greenlet2 = gevent.spawn(stats_history, runner2)
-        gevent.sleep(1)
+        gevent.sleep(0.1)
         hs1 = runner1.stats.history
         hs2 = runner2.stats.history
         gevent.kill(greenlet1)
@@ -530,6 +787,7 @@ class TestStatsEntryResponseTimesCache(unittest.TestCase):
             CachedResponseTimes(
                 response_times={11: 1},
                 num_requests=1,
+                num_none_requests=0,
             ),
             s.response_times_cache[int(s.last_request_timestamp) - 1],
         )
@@ -549,14 +807,14 @@ class TestStatsEntryResponseTimesCache(unittest.TestCase):
         s = StatsEntry(self.stats, "/", "GET", use_response_times_cache=True)
         t = int(time.time())
         for i in reversed(range(2, 30)):
-            s.response_times_cache[t - i] = CachedResponseTimes(response_times={}, num_requests=0)
+            s.response_times_cache[t - i] = CachedResponseTimes(response_times={}, num_requests=0, num_none_requests=0)
         self.assertEqual(29, len(s.response_times_cache))
         s.log(17, 1337)
         s.last_request_timestamp -= 1
         s.log(1, 1)
         self.assertEqual(20, len(s.response_times_cache))
         self.assertEqual(
-            CachedResponseTimes(response_times={17: 1}, num_requests=1),
+            CachedResponseTimes(response_times={17: 1}, num_requests=1, num_none_requests=0),
             s.response_times_cache.popitem(last=True)[1],
         )
 
@@ -564,7 +822,7 @@ class TestStatsEntryResponseTimesCache(unittest.TestCase):
         s = StatsEntry(self.stats, "/", "GET", use_response_times_cache=True)
         t = int(time.time())
         s.response_times_cache[t - 10] = CachedResponseTimes(
-            response_times={i: 1 for i in range(100)}, num_requests=200
+            response_times={i: 1 for i in range(100)}, num_requests=200, num_none_requests=0
         )
         s.response_times_cache[t - 10].response_times[1] = 201
 
@@ -573,6 +831,25 @@ class TestStatsEntryResponseTimesCache(unittest.TestCase):
         s.num_requests = 300
 
         self.assertEqual(95, s.get_current_response_time_percentile(0.95))
+
+    def test_get_current_response_time_percentile_with_none_response_times(self):
+        s = StatsEntry(self.stats, "/", "GET", use_response_times_cache=True)
+        t = int(time.time())
+        s.response_times_cache[t - 10] = CachedResponseTimes(
+            response_times={i: 1 for i in range(100)}, num_requests=200, num_none_requests=100
+        )
+
+        s.response_times = {i: 2 for i in range(100)}
+        s.num_requests = 400
+        s.num_none_requests = 200
+
+        self.assertEqual(95, s.get_current_response_time_percentile(0.95))
+
+    def test_get_current_response_time_percentile_outside_cache_window(self):
+        s = StatsEntry(self.stats, "/", "GET", use_response_times_cache=True)
+        # an empty response times cache, current time will not be in this cache
+        s.response_times_cache = {}
+        self.assertEqual(None, s.get_current_response_time_percentile(0.95))
 
     def test_diff_response_times_dicts(self):
         self.assertEqual(
@@ -686,9 +963,10 @@ class TestRequestStatsWithWebserver(WebserverTestCase):
     def test_request_stats_content_length(self):
         self.locust.client.get("/ultra_fast")
         self.assertEqual(
-            self.runner.stats.get("/ultra_fast", "GET").avg_content_length, len("This is an ultra fast response")
+            self.runner.stats.entries[("/ultra_fast", "GET")].avg_content_length, len("This is an ultra fast response")
         )
         self.locust.client.get("/ultra_fast")
+        # test legacy stats.get() function sometimes too
         self.assertEqual(
             self.runner.stats.get("/ultra_fast", "GET").avg_content_length, len("This is an ultra fast response")
         )
@@ -697,26 +975,37 @@ class TestRequestStatsWithWebserver(WebserverTestCase):
         path = "/no_content_length"
         self.locust.client.get(path)
         self.assertEqual(
-            self.runner.stats.get(path, "GET").avg_content_length,
+            self.runner.stats.entries[(path, "GET")].avg_content_length,
             len("This response does not have content-length in the header"),
         )
 
     def test_request_stats_no_content_length_streaming(self):
         path = "/no_content_length"
         self.locust.client.get(path, stream=True)
-        self.assertEqual(0, self.runner.stats.get(path, "GET").avg_content_length)
+        self.assertEqual(0, self.runner.stats.entries[(path, "GET")].avg_content_length)
 
     def test_request_stats_named_endpoint(self):
         self.locust.client.get("/ultra_fast", name="my_custom_name")
-        self.assertEqual(1, self.runner.stats.get("my_custom_name", "GET").num_requests)
+        self.assertEqual(1, self.runner.stats.entries[("my_custom_name", "GET")].num_requests)
+
+    def test_request_stats_named_endpoint_request_name(self):
+        self.locust.client.request_name = "my_custom_name_1"
+        self.locust.client.get("/ultra_fast")
+        self.assertEqual(1, self.runner.stats.entries[("my_custom_name_1", "GET")].num_requests)
+        self.locust.client.request_name = None
+
+    def test_request_stats_named_endpoint_rename_request(self):
+        with self.locust.client.rename_request("my_custom_name_3"):
+            self.locust.client.get("/ultra_fast")
+        self.assertEqual(1, self.runner.stats.entries[("my_custom_name_3", "GET")].num_requests)
 
     def test_request_stats_query_variables(self):
         self.locust.client.get("/ultra_fast?query=1")
-        self.assertEqual(1, self.runner.stats.get("/ultra_fast?query=1", "GET").num_requests)
+        self.assertEqual(1, self.runner.stats.entries[("/ultra_fast?query=1", "GET")].num_requests)
 
     def test_request_stats_put(self):
         self.locust.client.put("/put")
-        self.assertEqual(1, self.runner.stats.get("/put", "PUT").num_requests)
+        self.assertEqual(1, self.runner.stats.entries[("/put", "PUT")].num_requests)
 
     def test_request_connection_error(self):
         class MyUser(HttpUser):
@@ -725,8 +1014,8 @@ class TestRequestStatsWithWebserver(WebserverTestCase):
         locust = MyUser(self.environment)
         response = locust.client.get("/", timeout=0.1)
         self.assertEqual(response.status_code, 0)
-        self.assertEqual(1, self.runner.stats.get("/", "GET").num_failures)
-        self.assertEqual(1, self.runner.stats.get("/", "GET").num_requests)
+        self.assertEqual(1, self.runner.stats.entries[("/", "GET")].num_failures)
+        self.assertEqual(1, self.runner.stats.entries[("/", "GET")].num_requests)
 
 
 class MyTaskSet(TaskSet):
@@ -746,18 +1035,60 @@ class MyTaskSet(TaskSet):
 
 
 class TestInspectUser(unittest.TestCase):
-    def test_get_task_ratio_dict_relative(self):
-        ratio = get_task_ratio_dict([MyTaskSet])
+    def test_get_task_ratio_relative(self):
+        ratio = _get_task_ratio([MyTaskSet], False, 1.0)
         self.assertEqual(1.0, ratio["MyTaskSet"]["ratio"])
         self.assertEqual(0.75, ratio["MyTaskSet"]["tasks"]["root_task"]["ratio"])
         self.assertEqual(0.25, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["ratio"])
         self.assertEqual(0.5, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["tasks"]["task1"]["ratio"])
         self.assertEqual(0.5, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["tasks"]["task2"]["ratio"])
 
-    def test_get_task_ratio_dict_total(self):
-        ratio = get_task_ratio_dict([MyTaskSet], total=True)
+    def test_get_task_ratio_total(self):
+        ratio = _get_task_ratio([MyTaskSet], True, 1.0)
         self.assertEqual(1.0, ratio["MyTaskSet"]["ratio"])
         self.assertEqual(0.75, ratio["MyTaskSet"]["tasks"]["root_task"]["ratio"])
         self.assertEqual(0.25, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["ratio"])
         self.assertEqual(0.125, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["tasks"]["task1"]["ratio"])
         self.assertEqual(0.125, ratio["MyTaskSet"]["tasks"]["MySubTaskSet"]["tasks"]["task2"]["ratio"])
+
+
+class TestBucketResponseTime(unittest.TestCase):
+    def test_default_bucketing(self):
+        cases = [
+            # (input, expected)
+            (0, 0),
+            (45, 45),
+            (99, 99),
+            (1.4, 1),
+            (1.5, 2),
+            (99.9, 100),
+            (100, 100),
+            (147, 150),
+            (999, 1000),
+            (1000, 1000),
+            (3432, 3400),
+            (9999, 10000),
+            (10000, 10000),
+            (58760, 59000),
+        ]
+        for response_time, expected in cases:
+            self.assertEqual(bucket_response_time(response_time), expected, f"response_time={response_time}")
+
+    def test_custom_bucket_function_override(self):
+        original = locust.stats.bucket_response_time
+        try:
+            # Replace with a function that returns response times as-is (no rounding)
+            locust.stats.bucket_response_time = lambda rt: int(rt)
+
+            stats = RequestStats()
+            s = StatsEntry(stats, "custom_bucket_test", "GET")
+            s.log(147, 0)
+            s.log(3432, 0)
+
+            # With the identity function, keys should be the exact values
+            self.assertIn(147, s.response_times)
+            self.assertIn(3432, s.response_times)
+            # The default would have rounded 147 -> 150, so 150 should NOT be present
+            self.assertNotIn(150, s.response_times)
+        finally:
+            locust.stats.bucket_response_time = original
